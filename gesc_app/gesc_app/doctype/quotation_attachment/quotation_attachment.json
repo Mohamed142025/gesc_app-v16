@@ -1,0 +1,53 @@
+{
+ "actions": [],
+ "creation": "2026-09-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment_type",
+  "attachment_type_other",
+  "attachment",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "attachment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "نوع المرفق",
+   "options": "مخطط / رسم هندسي\nجدول الكميات (BOQ)\nصور الموقع\nإثبات هوية\nأخرى",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.attachment_type=='أخرى'",
+   "fieldname": "attachment_type_other",
+   "fieldtype": "Data",
+   "label": "اكتب نوع المرفق",
+   "mandatory_depends_on": "eval:doc.attachment_type=='أخرى'"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "الملف",
+   "reqd": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "ملاحظات"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Quotation Attachment",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

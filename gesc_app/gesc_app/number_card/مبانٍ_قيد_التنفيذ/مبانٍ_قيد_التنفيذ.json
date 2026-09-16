@@ -1,0 +1,23 @@
+{
+ "creation": "2026-09-12 02:02:44.084395",
+ "currency": "",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Project Building",
+ "filters_json": "[[\"Project Building\",\"percent_complete\",\"<\",100]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "\u0645\u0628\u0627\u0646\u064d \u0642\u064a\u062f \u0627\u0644\u062a\u0646\u0641\u064a\u0630",
+ "modified": "2026-09-12 02:02:44.084395",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "\u0645\u0628\u0627\u0646\u064d \u0642\u064a\u062f \u0627\u0644\u062a\u0646\u0641\u064a\u0630",
+ "owner": "Administrator",
+ "report_function": "Sum",
+ "show_full_number": 0,
+ "show_percentage_stats": 1,
+ "stats_time_interval": "Daily",
+ "type": "Document Type"
+}

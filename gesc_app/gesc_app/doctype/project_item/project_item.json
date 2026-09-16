@@ -1,0 +1,186 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-09-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "project",
+  "building",
+  "column_break_head",
+  "item",
+  "item_name",
+  "uom",
+  "section_break_contract",
+  "quantity",
+  "supply_weight_percent",
+  "column_break_contract",
+  "installation_weight_percent",
+  "section_break_progress",
+  "total_supplied_qty",
+  "column_break_progress",
+  "total_installed_qty",
+  "percent_complete",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "المشروع",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
+   "description": "اختياري - يُستخدم فقط لو المشروع فيه أكتر من مبنى",
+   "fieldname": "building",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "المبنى",
+   "options": "Project Building"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "بيتم اختياره من الأصناف/الخدمات الموجودة في أمر البيع المرتبط بالمشروع",
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "البند (الصنف / الخدمة)",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item.item_name",
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "اسم البند",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "item.stock_uom",
+   "fetch_if_empty": 1,
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "الوحدة",
+   "options": "UOM"
+  },
+  {
+   "description": "تُقرأ تلقائياً من سطر هذا الصنف في أمر البيع المعتمد الخاص بالمشروع (الكمية، ونسبتا التوريد/التركيب المحددتان يدوياً في العقد)",
+   "fieldname": "section_break_contract",
+   "fieldtype": "Section Break",
+   "label": "الكمية والأوزان المتعاقد عليها"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "الكمية المتعاقد عليها",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supply_weight_percent",
+   "fieldtype": "Percent",
+   "label": "وزن التوريد %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_contract",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "installation_weight_percent",
+   "fieldtype": "Percent",
+   "label": "وزن التركيب %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_progress",
+   "fieldtype": "Section Break",
+   "label": "متابعة التنفيذ"
+  },
+  {
+   "fieldname": "total_supplied_qty",
+   "fieldtype": "Float",
+   "label": "إجمالي الكمية الموردة",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_progress",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_installed_qty",
+   "fieldtype": "Float",
+   "label": "إجمالي الكمية المركبة",
+   "read_only": 1
+  },
+  {
+   "description": "تُحسب تلقائياً من كميات التوريد/التركيب في بيانات الأعمال المعتمدة، بناءً على أوزان الإنجاز أعلاه",
+   "fieldname": "percent_complete",
+   "fieldtype": "Percent",
+   "label": "نسبة الإنجاز",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "ملاحظات"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Project Item",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "project,building,item_name",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "item_name",
+ "track_changes": 1
+}

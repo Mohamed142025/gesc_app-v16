@@ -43,7 +43,14 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+	"Quotation": "public/js/quotation.js",
+	"Project": "public/js/project.js",
+	"Task": "public/js/task.js",
+	"Project Item": "public/js/project_item.js",
+	"Sales Order": "public/js/sales_order.js",
+	"Delivery Note": "public/js/delivery_note.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -138,13 +145,24 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Task": {
+		"on_update": "gesc_app.gesc_app.task_utils.sync_responsible_assignment",
+	},
+	"Project": {
+		"on_update": "gesc_app.gesc_app.project_utils.generate_tasks_from_template",
+	},
+	"Sales Order": {
+		"validate": "gesc_app.gesc_app.sales_order_utils.validate_contract_relation",
+		"on_submit": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
+		"on_cancel": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
+	},
+	"Delivery Note": {
+		"before_validate": "gesc_app.gesc_app.delivery_note_utils.calculate_line_values",
+		"on_submit": "gesc_app.gesc_app.delivery_note_utils.sync_project_item_progress_on_submit",
+		"on_cancel": "gesc_app.gesc_app.delivery_note_utils.sync_project_item_progress_on_cancel",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
@@ -190,9 +208,9 @@ app_license = "mit"
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "gesc_app.task.get_dashboard_data"
-# }
+override_doctype_dashboards = {
+	"Quotation": "gesc_app.gesc_app.quotation_dashboard.get_data"
+}
 
 # exempt linked doctypes from being automatically cancelled
 #
@@ -255,4 +273,45 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
+
+# Fixtures
+# --------
+# Custom Fields added to standard doctypes (e.g. Quotation) by this app.
+
+fixtures = [
+	{
+		"doctype": "Custom Field",
+		"filters": [
+			[
+				"dt",
+				"in",
+				[
+					"Quotation",
+					"Task",
+					"Project",
+					"Sales Order",
+					"Sales Order Item",
+					"Delivery Note Item",
+				],
+			],
+			["fieldname", "like", "custom_%"],
+		],
+	},
+	{
+		"doctype": "Workspace",
+		"filters": [["name", "=", "Projects"]],
+	},
+	{
+		"doctype": "Workspace Sidebar",
+		"filters": [["name", "=", "Projects"]],
+	},
+	{
+		"doctype": "Dashboard",
+		"filters": [["name", "=", "Project"]],
+	},
+	{
+		"doctype": "Translation",
+		"filters": [["source_text", "like", "%Delivery Note%"]],
+	},
+]
 
