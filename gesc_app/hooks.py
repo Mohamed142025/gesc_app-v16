@@ -25,8 +25,13 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/gesc_app/css/gesc_app.css"
-app_include_js = "/assets/gesc_app/js/sales_order_analysis.js"
+# Bump asset query versions when changing raw static files.
+app_include_css = "/assets/gesc_app/css/notification_counter.css?v=4"
+app_include_js = [
+	"/assets/gesc_app/js/sales_order_analysis.js",
+	"/assets/gesc_app/js/item_description.js?v=1",
+	"/assets/gesc_app/js/notification_counter.js?v=4",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/gesc_app/css/gesc_app.css"
@@ -117,6 +122,8 @@ doctype_js = {
 # before_app_uninstall = "gesc_app.utils.before_app_uninstall"
 # after_app_uninstall = "gesc_app.utils.after_app_uninstall"
 
+after_migrate = "gesc_app.item_description_setup.setup_item_description_fields"
+
 # Build
 # ------------------
 # To hook into the build process
@@ -146,6 +153,10 @@ doctype_js = {
 # Hook on document methods and events
 
 doc_events = {
+	"*": {
+		"on_update": "gesc_app.gesc_app.notification_handler.notify_assignees_on_update",
+		"validate": "gesc_app.item_description_setup.validate_item_descriptions",
+	},
 	"Task": {
 		"on_update": "gesc_app.gesc_app.task_utils.sync_responsible_assignment",
 	},
