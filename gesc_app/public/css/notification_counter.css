@@ -32,3 +32,16 @@
 .body-sidebar-container:not(.expanded) .sidebar-notification .sidebar-item-label {
 	display: none;
 }
+
+/* distinguish unread notifications from read ones */
+.notifications-list .notification-item.unread {
+	background-color: var(--ms-primary-soft, rgba(52, 211, 153, 0.12));
+}
+
+.notifications-list .notification-item:not(.unread) {
+	background-color: transparent;
+}
+
+.notifications-list .notification-item.unread:hover {
+	background-color: var(--ms-primary-soft, rgba(52, 211, 153, 0.2));
+}

@@ -26,7 +26,7 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # Bump asset query versions when changing raw static files.
-app_include_css = "/assets/gesc_app/css/notification_counter.css?v=4"
+app_include_css = "/assets/gesc_app/css/notification_counter.css?v=5"
 app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
 	"/assets/gesc_app/js/item_description.js?v=1",
