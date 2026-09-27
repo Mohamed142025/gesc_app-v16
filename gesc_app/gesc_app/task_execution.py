@@ -1,0 +1,570 @@
+"""Execution items on Task.
+
+Two kinds of task use the items table and the same workflow:
+
+- Execution tasks: the Site Engineer lists the items, the Technical Office fills in
+  quantities and documents, and the Site Engineer either approves (which raises a
+  purchase Material Request for the project warehouse) or sends the task back with notes.
+- Pre-quotation inspections: the Site Engineer records each item with site documents
+  and a description, the Technical Office sets the quantities, and a Quotation is made
+  from the task with the same items.
+"""
+
+import frappe
+from frappe import _
+from frappe.utils import cint, flt, get_link_to_form, getdate, now_datetime, nowdate
+
+SITE_ENGINEER = "Site Engineer"
+TECHNICAL_OFFICE = "Technical Office"
+
+WORKFLOW_NAME = "تنفيذ بنود المهام"
+TASK_TYPE_NAME = "أعمال تنفيذ بنود"
+INSPECTION_TYPE_NAME = "معاينة ما قبل عرض السعر"
+
+STATE_OPEN = "مفتوحة"
+STATE_PENDING_REVIEW = "في انتظار مراجعة المكتب الفني"
+STATE_IN_PROGRESS = "جاري العمل"
+STATE_EXECUTED = "تم التنفيذ ورفع المستندات"
+STATE_NOTES = "يوجد ملاحظات"
+STATE_NOTES_IN_PROGRESS = "جاري العمل على الملاحظات"
+STATE_NOTES_DONE = "تم العمل على الملاحظات"
+STATE_APPROVED = "معتمد"
+STATE_INSPECTED = "تم المعاينة"
+STATE_DONE = "تم التنفيذ"
+
+ACTION_SEND = "إرسال للمكتب الفني"
+ACTION_START = "بدء العمل"
+ACTION_EXECUTED = "تم التنفيذ"
+ACTION_APPROVE = "اعتماد"
+ACTION_NOTES = "يوجد ملاحظات"
+ACTION_START_NOTES = "بدء العمل على الملاحظات"
+ACTION_NOTES_DONE = "تم العمل على الملاحظات"
+ACTION_INSPECTED = "تم المعاينة"
+
+# States in which the Technical Office works on the items, and those waiting for the
+# Site Engineer's decision.
+TECHNICAL_OFFICE_STATES = (
+	STATE_PENDING_REVIEW,
+	STATE_IN_PROGRESS,
+	STATE_NOTES,
+	STATE_NOTES_IN_PROGRESS,
+	STATE_INSPECTED,
+)
+DECISION_STATES = (STATE_EXECUTED, STATE_NOTES_DONE)
+
+SITE_ENGINEER_FIELDS = (
+	"item_code",
+	"site_engineer_attachment",
+	"site_engineer_notes",
+	"item_description",
+	"description",
+	"initial_qty",
+)
+TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_attachment", "technical_office_notes")
+REVIEW_FIELDS = ("is_rejected", "site_engineer_approval_notes")
+
+ATTACHMENT_ROLES = {
+	"site_engineer_attachment": "مهندس الموقع",
+	"technical_office_attachment": "المكتب الفني",
+}
+
+# Attachment type in the Quotation's attachments table for each side's files.
+QUOTATION_ATTACHMENT_TYPES = {
+	"site_engineer_attachment": "صور الموقع",
+	"technical_office_attachment": "مخطط / رسم هندسي",
+}
+
+
+def validate_task(doc, method=None):
+	before = doc.get_doc_before_save()
+	old_state = (before and before.get("workflow_state")) or STATE_OPEN
+	new_state = doc.get("workflow_state") or STATE_OPEN
+
+	# A task that is already in the workflow keeps its execution items even if its
+	# type changes or the type stops having work items.
+	if before and old_state != STATE_OPEN:
+		if doc.type != before.type:
+			frappe.throw(_("لا يمكن تغيير نوع المهمة بعد إرسالها للمكتب الفني."))
+		doc.custom_has_work_items = before.custom_has_work_items
+		doc.custom_is_pre_quotation_inspection = before.custom_is_pre_quotation_inspection
+		doc.custom_is_material_submittal = before.custom_is_material_submittal
+
+	if not _uses_items(doc) and not (before and _uses_items(before)):
+		return
+
+	is_submittal = doc.get("custom_is_material_submittal") or (before and before.get("custom_is_material_submittal"))
+	if old_state == STATE_OPEN or (is_submittal and old_state == STATE_IN_PROGRESS):
+		_set_item_descriptions(doc)
+	_keep_system_fields(doc, before)
+
+	if is_submittal:
+		from gesc_app.gesc_app import material_submittal
+
+		material_submittal.validate(doc, before, old_state, new_state)
+	else:
+		_validate_item_changes(doc, before, old_state)
+		if old_state != new_state:
+			_apply_transition(doc, new_state)
+
+	_log_documents(doc, before)
+
+
+def on_task_update(doc, method=None):
+	if doc.get("custom_is_material_submittal"):
+		from gesc_app.gesc_app import material_submittal
+
+		material_submittal.on_update(doc)
+		return
+
+	if not doc.get("custom_has_work_items"):
+		return
+	if doc.get("workflow_state") != STATE_APPROVED or doc.custom_material_request:
+		return
+
+	before = doc.get_doc_before_save()
+	if not before or before.get("workflow_state") == STATE_APPROVED:
+		return
+
+	material_request = create_material_request(doc)
+	doc.db_set("custom_material_request", material_request, update_modified=False)
+	frappe.msgprint(
+		_("تم إنشاء طلب المواد {0}").format(get_link_to_form("Material Request", material_request)),
+		alert=True,
+		indicator="green",
+	)
+
+
+@frappe.whitelist()
+def save_review(task, action, rows=None, required_by_date=None):
+	"""Store the Site Engineer's decision before the workflow action runs.
+
+	The workflow reloads the task from the database, so values chosen in the approval
+	and notes dialogs have to be saved first.
+	"""
+	doc = frappe.get_doc("Task", task)
+	doc.check_permission("write")
+
+	if doc.get("workflow_state") not in DECISION_STATES:
+		frappe.throw(_("المهمة ليست في مرحلة اعتماد مهندس الموقع."))
+	if not _is_site_engineer():
+		frappe.throw(_("الاعتماد أو تسجيل الملاحظات متاح لمهندس الموقع فقط."))
+
+	if action == ACTION_APPROVE:
+		doc.custom_required_by_date = required_by_date
+	elif action == ACTION_NOTES:
+		decisions = {row.get("name"): row for row in frappe.parse_json(rows) or []}
+		for row in doc.custom_execution_items:
+			decision = decisions.get(row.name) or {}
+			row.is_rejected = cint(decision.get("is_rejected"))
+			row.site_engineer_approval_notes = (decision.get("notes") or "").strip() if row.is_rejected else ""
+	else:
+		frappe.throw(_("إجراء غير معروف: {0}").format(action))
+
+	doc.save()
+	return doc
+
+
+@frappe.whitelist()
+def get_task_quotation(task):
+	"""The Quotation made from this task, if one is still active."""
+	frappe.get_doc("Task", task).check_permission("read")
+	return _get_task_quotation(task)
+
+
+@frappe.whitelist()
+def make_quotation(source_name, target_doc=None):
+	from frappe.model.mapper import get_mapped_doc
+
+	task = frappe.get_doc("Task", source_name)
+	task.check_permission("read")
+	if not task.get("custom_is_pre_quotation_inspection"):
+		frappe.throw(_("عرض السعر يُنشأ من مهام معاينة ما قبل التسعير فقط."))
+	if task.get("workflow_state") != STATE_DONE:
+		frappe.throw(_("أنشئ عرض السعر بعد وصول المهمة إلى حالة «{0}».").format(STATE_DONE))
+	existing = _get_task_quotation(task.name)
+	if existing:
+		frappe.throw(_("للمهمة عرض سعر بالفعل: {0}").format(get_link_to_form("Quotation", existing)))
+
+	def set_missing_values(source, target):
+		if source.get("custom_customer"):
+			target.quotation_to = "Customer"
+			target.party_name = source.custom_customer
+		for row in source.custom_execution_items:
+			for fieldname, attachment_type in QUOTATION_ATTACHMENT_TYPES.items():
+				if row.get(fieldname):
+					target.append(
+						"custom_attachments",
+						{
+							"attachment_type": attachment_type,
+							"attachment": row.get(fieldname),
+							"remarks": _("البند {0}: {1}").format(row.idx, row.item_name or row.item_code),
+						},
+					)
+		target.run_method("set_missing_values")
+		target.run_method("calculate_taxes_and_totals")
+
+	return get_mapped_doc(
+		"Task",
+		source_name,
+		{
+			# The Quotation's link back to the task (custom_task) is filled by the mapper.
+			"Task": {"doctype": "Quotation", "field_no_map": ["status"]},
+			"Task Execution Item": {
+				"doctype": "Quotation Item",
+				"field_map": {"item_description": "custom_item_description"},
+			},
+		},
+		target_doc,
+		set_missing_values,
+	)
+
+
+def link_quotation_to_task(doc, method=None):
+	"""Point the task at its Quotation, so the Quotation lists the task in its connections."""
+	if not doc.get("custom_task") or doc.docstatus == 2:
+		return
+	if frappe.db.get_value("Task", doc.custom_task, "custom_quotation") != doc.name:
+		frappe.db.set_value("Task", doc.custom_task, "custom_quotation", doc.name, update_modified=False)
+
+
+def validate_task_type(doc, method=None):
+	kinds = [f for f in ("custom_has_work_items", "custom_is_pre_quotation_inspection", "custom_is_material_submittal") if doc.get(f)]
+	if len(kinds) > 1:
+		frappe.throw(_("نوع المهمة يكون نوعاً واحداً فقط: «له بنود أعمال» أو «معاينة ما قبل التسعير» أو «is Material Submittal»."))
+
+
+def create_material_request(task):
+	existing = frappe.db.get_value("Material Request", {"custom_task": task.name, "docstatus": ("<", 2)})
+	if existing:
+		return existing
+
+	company = _get_company(task)
+	warehouse = get_project_warehouse(task.project, company)
+
+	material_request = frappe.new_doc("Material Request")
+	material_request.update(
+		{
+			"material_request_type": "Purchase",
+			"company": company,
+			"transaction_date": nowdate(),
+			"schedule_date": task.custom_required_by_date,
+			"set_warehouse": warehouse,
+			"custom_task": task.name,
+		}
+	)
+
+	for row in task.custom_execution_items:
+		item = frappe.get_cached_value("Item", row.item_code, ["stock_uom", "description"], as_dict=True)
+		uom = row.uom or item.stock_uom
+		material_request.append(
+			"items",
+			{
+				"item_code": row.item_code,
+				"item_name": row.item_name,
+				"description": item.description or row.item_name,
+				"qty": row.qty,
+				"uom": uom,
+				"stock_uom": item.stock_uom,
+				"conversion_factor": _get_conversion_factor(row.item_code, uom),
+				"schedule_date": task.custom_required_by_date,
+				"warehouse": warehouse,
+				"project": task.project,
+			},
+		)
+
+	# The request is raised by the approval itself, so the Site Engineer does not need
+	# rights to create or submit purchase requests.
+	material_request.flags.ignore_permissions = True
+	material_request.insert()
+	material_request.submit()
+	return material_request.name
+
+
+def get_project_warehouse(project, company=None):
+	if not project:
+		frappe.throw(_("اربط المهمة بمشروع قبل الاعتماد."))
+
+	warehouse = frappe.db.get_value(
+		"Warehouse",
+		{"custom_is_project_warehouse": 1, "custom_project": project, "disabled": 0},
+		["name", "company"],
+		as_dict=True,
+	)
+	if not warehouse:
+		frappe.throw(
+			_("لا يوجد مخزن مربوط بالمشروع {0}. من شاشة المخزن علّم (هل هو مخزن مشروع) واختر المشروع، ثم أعد الاعتماد.").format(
+				frappe.bold(project)
+			),
+			title=_("حدد مخزن المشروع"),
+		)
+	if company and warehouse.company != company:
+		frappe.throw(
+			_("مخزن المشروع {0} تابع لشركة {1} والمهمة تابعة لشركة {2}.").format(
+				frappe.bold(warehouse.name), warehouse.company, company
+			)
+		)
+	return warehouse.name
+
+
+def validate_warehouse(doc, method=None):
+	if not doc.get("custom_is_project_warehouse"):
+		doc.custom_project = None
+		return
+
+	if doc.is_group:
+		frappe.throw(_("مخزن المشروع لا يمكن أن يكون مجموعة."))
+	if not doc.custom_project:
+		frappe.throw(_("اختر المشروع المربوط بالمخزن."))
+
+	project_company = frappe.db.get_value("Project", doc.custom_project, "company")
+	if project_company and doc.company != project_company:
+		frappe.throw(
+			_("المشروع {0} تابع لشركة {1}، والمخزن تابع لشركة {2}.").format(
+				frappe.bold(doc.custom_project), project_company, doc.company
+			)
+		)
+
+	other = frappe.db.get_value(
+		"Warehouse",
+		{
+			"custom_is_project_warehouse": 1,
+			"custom_project": doc.custom_project,
+			"disabled": 0,
+			"name": ("!=", doc.name),
+		},
+	)
+	if other:
+		frappe.throw(
+			_("المشروع {0} مربوط بالفعل بالمخزن {1}.").format(frappe.bold(doc.custom_project), frappe.bold(other))
+		)
+
+
+def _keep_system_fields(doc, before):
+	"""Fields only this module writes: the request link, the round counter and the history."""
+	doc.custom_material_request = before.custom_material_request if before else None
+	doc.custom_review_round = cint(before.custom_review_round) if before else 0
+
+	history = [(d.name, d.file) for d in doc.custom_execution_documents]
+	previous = [(d.name, d.file) for d in before.custom_execution_documents] if before else []
+	if history != previous:
+		frappe.throw(_("سجل المستندات يُحدَّث تلقائياً ولا يمكن تعديله."))
+
+
+def _validate_item_changes(doc, before, old_state):
+	previous = {row.name: row for row in before.custom_execution_items} if before else {}
+	current = {row.name for row in doc.custom_execution_items}
+
+	site_engineer_changed = bool(set(previous) - current)
+	technical_office_changed = review_changed = False
+	for row in doc.custom_execution_items:
+		old = previous.get(row.name)
+		site_engineer_changed |= old is None or _changed(row, old, SITE_ENGINEER_FIELDS)
+		technical_office_changed |= _changed(row, old, TECHNICAL_OFFICE_FIELDS)
+		review_changed |= _changed(row, old, REVIEW_FIELDS)
+
+	date_changed = _as_date(doc.custom_required_by_date) != _as_date(
+		before.custom_required_by_date if before else None
+	)
+
+	if site_engineer_changed and old_state != STATE_OPEN:
+		frappe.throw(_("لا يمكن إضافة أو حذف البنود أو تعديل بيانات مهندس الموقع بعد إرسال المهمة للمكتب الفني."))
+
+	if technical_office_changed and old_state not in TECHNICAL_OFFICE_STATES:
+		frappe.throw(
+			_("الكمية ومرفقات وملاحظات المكتب الفني تُعدَّل فقط والمهمة عند المكتب الفني (الحالة الحالية: {0}).").format(
+				old_state
+			)
+		)
+
+	if (review_changed or date_changed) and (old_state not in DECISION_STATES or not _is_site_engineer()):
+		frappe.throw(_("المرفوض وملاحظات الاعتماد وتاريخ الاحتياج يحددها مهندس الموقع عند الاعتماد فقط."))
+
+
+def _apply_transition(doc, new_state):
+	if not _uses_items(doc):
+		frappe.throw(_("نوع المهمة ليس له بنود أعمال ولا معاينة."))
+
+	rows = doc.custom_execution_items
+	if doc.get("custom_is_pre_quotation_inspection"):
+		_apply_inspection_transition(doc, new_state)
+
+	elif new_state == STATE_PENDING_REVIEW:
+		if not rows:
+			frappe.throw(_("أضف بند تنفيذ واحد على الأقل قبل الإرسال للمكتب الفني."))
+
+	elif new_state in (STATE_EXECUTED, STATE_NOTES_DONE):
+		_validate_quantities_and_documents(rows)
+
+	elif new_state == STATE_NOTES:
+		rejected = [row for row in rows if row.is_rejected]
+		if not rejected:
+			frappe.throw(_("علّم بنداً مرفوضاً واحداً على الأقل."))
+		without_notes = [str(row.idx) for row in rejected if not (row.site_engineer_approval_notes or "").strip()]
+		if without_notes:
+			frappe.throw(_("اكتب ملاحظات الاعتماد للبنود المرفوضة: {0}").format(", ".join(without_notes)))
+		doc.custom_review_round = cint(doc.custom_review_round) + 1
+
+	elif new_state == STATE_APPROVED:
+		_validate_quantities_and_documents(rows)
+		if not doc.custom_required_by_date:
+			frappe.throw(_("حدد تاريخ الاحتياج قبل الاعتماد."))
+		if getdate(doc.custom_required_by_date) < getdate(nowdate()):
+			frappe.throw(_("تاريخ الاحتياج لا يمكن أن يكون في الماضي."))
+		get_project_warehouse(doc.project, _get_company(doc))
+
+		for row in rows:
+			row.is_rejected = 0
+		_set_completed(doc)
+
+
+def _apply_inspection_transition(doc, new_state):
+	rows = doc.custom_execution_items
+	if new_state == STATE_INSPECTED:
+		if not rows:
+			frappe.throw(_("أضف بنداً واحداً على الأقل قبل تسجيل المعاينة."))
+		missing = [
+			str(row.idx)
+			for row in rows
+			if not row.site_engineer_attachment or not (row.description or "").strip()
+		]
+		if missing:
+			frappe.throw(
+				_("ارفع مرفق مهندس الموقع واكتب التوصيف لكل البنود. البنود الناقصة: {0}").format(", ".join(missing))
+			)
+		if not (doc.get("custom_project_name") or "").strip():
+			frappe.throw(_("اكتب اسم المشروع في «بيانات المشروع / الموقع»."))
+
+	elif new_state == STATE_IN_PROGRESS:
+		# The Technical Office starts from the Site Engineer's figures.
+		for row in rows:
+			if not flt(row.qty) and flt(row.initial_qty):
+				row.qty = row.initial_qty
+
+	elif new_state == STATE_DONE:
+		_validate_quantities_and_documents(rows, documents=False)
+		_set_completed(doc)
+
+
+def _set_completed(doc):
+	if doc.status == "Completed" and not doc.completed_on:
+		doc.completed_on = nowdate()
+		doc.completed_by = doc.completed_by or frappe.session.user
+
+
+def _validate_quantities_and_documents(rows, documents=True):
+	if not rows:
+		frappe.throw(_("لا توجد بنود تنفيذ."))
+
+	if documents:
+		missing = [str(row.idx) for row in rows if flt(row.qty) <= 0 or not row.technical_office_attachment]
+		if missing:
+			frappe.throw(
+				_("أدخل الكمية وارفع مرفق المكتب الفني لكل البنود. البنود الناقصة: {0}").format(", ".join(missing))
+			)
+	else:
+		missing = [str(row.idx) for row in rows if flt(row.qty) <= 0]
+		if missing:
+			frappe.throw(_("أدخل الكمية لكل البنود. البنود الناقصة: {0}").format(", ".join(missing)))
+
+	fractional = [
+		str(row.idx)
+		for row in rows
+		if row.uom
+		and frappe.get_cached_value("UOM", row.uom, "must_be_whole_number")
+		and flt(row.qty) != cint(row.qty)
+	]
+	if fractional:
+		frappe.throw(_("وحدة القياس في البنود {0} لا تقبل كسوراً.").format(", ".join(fractional)))
+
+
+def _log_documents(doc, before):
+	previous = {row.name: row for row in before.custom_execution_items} if before else {}
+	review_round = cint(doc.custom_review_round) + 1
+	# A file put back after being removed from its item is already in the history.
+	logged = {(d.row_no, d.uploaded_by_role, d.file) for d in doc.custom_execution_documents}
+
+	for row in doc.custom_execution_items:
+		old = previous.get(row.name)
+		for fieldname, role in ATTACHMENT_ROLES.items():
+			file_url = row.get(fieldname)
+			if (
+				file_url
+				and file_url != (old.get(fieldname) if old else None)
+				and (row.idx, role, file_url) not in logged
+			):
+				doc.append(
+					"custom_execution_documents",
+					{
+						"row_no": row.idx,
+						"item_code": row.item_code,
+						"item_name": row.item_name,
+						"uploaded_by_role": role,
+						"review_round": review_round,
+						"file": file_url,
+						"uploaded_by": frappe.session.user,
+						"uploaded_on": now_datetime(),
+					},
+				)
+
+
+def _changed(row, old, fieldnames):
+	for fieldname in fieldnames:
+		value = row.get(fieldname)
+		old_value = old.get(fieldname) if old else None
+		if fieldname in ("qty", "initial_qty", "is_rejected"):
+			if flt(value) != flt(old_value):
+				return True
+		elif (value or "").strip() != (old_value or "").strip():
+			return True
+	return False
+
+
+def _uses_items(doc):
+	return (
+		doc.get("custom_has_work_items")
+		or doc.get("custom_is_pre_quotation_inspection")
+		or doc.get("custom_is_material_submittal")
+	)
+
+
+def _set_item_descriptions(doc):
+	"""An item's description comes from the chosen library entry unless one was written."""
+	for row in doc.custom_execution_items:
+		if not row.get("item_description"):
+			continue
+		entry = frappe.db.get_value("Item Description", row.item_description, ["item_code", "description"], as_dict=True)
+		if not entry or entry.item_code != row.item_code:
+			frappe.throw(_("التوصيف المختار في البند {0} غير مرتبط بالصنف.").format(row.idx))
+		if not (row.description or "").strip():
+			row.description = entry.description
+
+
+def _get_task_quotation(task):
+	return frappe.db.get_value(
+		"Quotation", {"custom_task": task, "docstatus": ("<", 2)}, "name", order_by="creation desc"
+	)
+
+
+def _as_date(value):
+	# getdate(None) returns today, so an empty date has to stay empty here.
+	return getdate(value) if value else None
+
+
+def _get_company(task):
+	company = task.company or frappe.db.get_value("Project", task.project, "company")
+	if not company:
+		frappe.throw(_("حدد الشركة في المهمة أو المشروع."))
+	return company
+
+
+def _get_conversion_factor(item_code, uom):
+	from erpnext.stock.get_item_details import get_conversion_factor
+
+	conversion_factor = flt(get_conversion_factor(item_code, uom).get("conversion_factor"))
+	if not conversion_factor:
+		frappe.throw(_("لا يوجد معامل تحويل للوحدة {0} في الصنف {1}.").format(uom, item_code))
+	return conversion_factor
+
+
+def _is_site_engineer():
+	return SITE_ENGINEER in frappe.get_roles()

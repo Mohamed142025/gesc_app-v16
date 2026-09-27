@@ -33,7 +33,7 @@ def generate_tasks_from_template(doc, method=None):
 			role_note = _("Suggested responsible role: {0}").format(row.default_role)
 			description = f"{description}\n\n{role_note}" if description else role_note
 
-		frappe.get_doc(
+		new_task = frappe.get_doc(
 			{
 				"doctype": "Task",
 				"project": doc.name,
@@ -41,12 +41,35 @@ def generate_tasks_from_template(doc, method=None):
 				"description": description,
 				"priority": row.priority or "Medium",
 				"is_milestone": row.is_milestone,
+				"is_group": row.is_group,
 				"exp_start_date": start_date,
 				"exp_end_date": end_date,
 				"status": "Open",
 			}
-		).insert(ignore_permissions=True)
+		)
+		new_task.insert(ignore_permissions=True)
 		created += 1
+
+		if row.is_group and row.sub_tasks_text:
+			for sub_subject in row.sub_tasks_text.splitlines():
+				sub_subject = sub_subject.strip()
+				if not sub_subject:
+					continue
+
+				sub_task = frappe.get_doc(
+					{
+						"doctype": "Task",
+						"project": doc.name,
+						"subject": sub_subject,
+						"status": "Open",
+					}
+				)
+				sub_task.insert(ignore_permissions=True)
+				created += 1
+
+				new_task.append("depends_on", {"task": sub_task.name})
+
+			new_task.save(ignore_permissions=True)
 
 	if created:
 		frappe.msgprint(

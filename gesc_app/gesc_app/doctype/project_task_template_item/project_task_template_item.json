@@ -13,7 +13,9 @@
   "start_after_days",
   "duration_days",
   "default_role",
-  "description"
+  "description",
+  "is_group",
+  "sub_tasks_text"
  ],
  "fields": [
   {
@@ -79,6 +81,20 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "تفاصيل"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Group"
+  },
+  {
+   "depends_on": "eval:doc.is_group",
+   "description": "اكتب عنوان كل تاسك فرعي في سطر منفصل. هتتعمل تلقائيًا وتتحط في جدول Dependent Tasks بتاع التاسك الأساسي",
+   "fieldname": "sub_tasks_text",
+   "fieldtype": "Small Text",
+   "label": "التاسكات الفرعية (سطر لكل تاسك)"
   }
  ],
  "istable": 1,

@@ -31,6 +31,7 @@ app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
 	"/assets/gesc_app/js/item_description.js?v=1",
 	"/assets/gesc_app/js/notification_counter.js?v=4",
+	"/assets/gesc_app/js/private_comments.js?v=1",
 ]
 
 # include js, css files in header of web template
@@ -49,11 +50,11 @@ app_include_js = [
 
 # include js in doctype views
 doctype_js = {
-	"Quotation": "public/js/quotation.js",
-	"Project": "public/js/project.js",
-	"Task": "public/js/task.js",
+	"Quotation": ["public/js/quotation.js", "public/js/quotation_approval.js", "public/js/quotation_addendum.js"],
+	"Project": ["public/js/project.js", "public/js/project_controls.js"],
+	"Task": ["public/js/task.js", "public/js/task_execution.js"],
 	"Project Item": "public/js/project_item.js",
-	"Sales Order": "public/js/sales_order.js",
+	"Sales Order": ["public/js/sales_order.js", "public/js/sales_order_project.js"],
 	"Delivery Note": "public/js/delivery_note.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -122,7 +123,18 @@ doctype_js = {
 # before_app_uninstall = "gesc_app.utils.before_app_uninstall"
 # after_app_uninstall = "gesc_app.utils.after_app_uninstall"
 
-after_migrate = "gesc_app.item_description_setup.setup_item_description_fields"
+after_migrate = [
+	"gesc_app.item_description_setup.setup_item_description_fields",
+	"gesc_app.gesc_app.task_execution_setup.setup_task_execution",
+	"gesc_app.gesc_app.project_controls_setup.setup_project_controls",
+	"gesc_app.gesc_app.quotation_approval_setup.setup_quotation_approval",
+	"gesc_app.gesc_app.quotation_addendum.setup_quotation_addendum",
+	"gesc_app.gesc_app.private_comments.setup_private_comments",
+]
+
+# Private comments: per-user timeline items and the enabled document types at login.
+additional_timeline_content = {"*": ["gesc_app.gesc_app.private_comments.timeline"]}
+boot_session = "gesc_app.gesc_app.private_comments.boot_session"
 
 # Build
 # ------------------
@@ -158,13 +170,58 @@ doc_events = {
 		"validate": "gesc_app.item_description_setup.validate_item_descriptions",
 	},
 	"Task": {
-		"on_update": "gesc_app.gesc_app.task_utils.sync_responsible_assignment",
+		"validate": "gesc_app.gesc_app.task_execution.validate_task",
+		"on_update": [
+			"gesc_app.gesc_app.task_utils.sync_responsible_assignment",
+			"gesc_app.gesc_app.task_execution.on_task_update",
+		],
+	},
+	"Warehouse": {
+		"validate": "gesc_app.gesc_app.task_execution.validate_warehouse",
+	},
+	"Task Type": {
+		"validate": "gesc_app.gesc_app.task_execution.validate_task_type",
+	},
+	"ToDo": {
+		"on_update": "gesc_app.gesc_app.material_submittal.acknowledge",
+	},
+	"Quotation": {
+		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
+		"validate": [
+			"gesc_app.gesc_app.project_controls.set_required_advance",
+			"gesc_app.gesc_app.quotation_approval.validate",
+			"gesc_app.gesc_app.quotation_addendum.validate",
+		],
+		"on_update": [
+			"gesc_app.gesc_app.task_execution.link_quotation_to_task",
+			"gesc_app.gesc_app.quotation_approval.on_update",
+		],
+		"before_submit": "gesc_app.gesc_app.quotation_approval.before_submit",
+		"on_submit": "gesc_app.gesc_app.quotation_addendum.on_submit",
+		"before_print": "gesc_app.gesc_app.quotation_approval.before_print",
+	},
+	"Communication": {
+		"before_insert": "gesc_app.gesc_app.quotation_approval.check_email",
+	},
+	"Selling Settings": {
+		"validate": "gesc_app.gesc_app.quotation_approval.validate_settings",
 	},
 	"Project": {
-		"on_update": "gesc_app.gesc_app.project_utils.generate_tasks_from_template",
+		"validate": "gesc_app.gesc_app.project_controls.validate_project",
+		"on_update": [
+			"gesc_app.gesc_app.project_utils.generate_tasks_from_template",
+			"gesc_app.gesc_app.project_controls.log_project_exception",
+		],
 	},
 	"Sales Order": {
-		"validate": "gesc_app.gesc_app.sales_order_utils.validate_contract_relation",
+		"before_insert": "gesc_app.gesc_app.quotation_addendum.link_sales_order",
+		"autoname": "gesc_app.gesc_app.sales_order_utils.set_addendum_name",
+		"validate": [
+			"gesc_app.gesc_app.sales_order_utils.validate_contract_relation",
+			"gesc_app.gesc_app.project_controls.set_required_advance",
+		],
+		"before_submit": "gesc_app.gesc_app.project_controls.validate_sales_order_advance",
+		"before_update_after_submit": "gesc_app.gesc_app.project_controls.check_advance_change_after_submit",
 		"on_submit": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
 		"on_cancel": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
 	},
@@ -220,7 +277,8 @@ doc_events = {
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 override_doctype_dashboards = {
-	"Quotation": "gesc_app.gesc_app.quotation_dashboard.get_data"
+	"Quotation": "gesc_app.gesc_app.quotation_dashboard.get_data",
+	"Task": "gesc_app.gesc_app.task_dashboard.get_data",
 }
 
 # exempt linked doctypes from being automatically cancelled

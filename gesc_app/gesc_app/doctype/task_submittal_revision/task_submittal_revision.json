@@ -1,0 +1,156 @@
+{
+ "actions": [],
+ "creation": "2026-09-26 23:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "revision",
+  "submitted_on",
+  "transmittal_no",
+  "submitted_by",
+  "response_column",
+  "response_code",
+  "response_date",
+  "days_with_consultant",
+  "consultant_ref",
+  "recorded_by",
+  "response_section",
+  "response_file",
+  "response_comments",
+  "decision_section",
+  "decision",
+  "decided_by",
+  "decided_on"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "fieldname": "revision",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Rev",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "submitted_on",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "تاريخ الإرسال",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transmittal_no",
+   "fieldtype": "Data",
+   "label": "رقم خطاب الإرسال",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_by",
+   "fieldtype": "Link",
+   "label": "أرسله",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_column",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "response_code",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "الكود",
+   "options": "\nApproved\nApproved with Comments\nRejected – Corrections Required\nRejected – Rework Required",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "response_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "تاريخ الرد",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "days_with_consultant",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "أيام عند الاستشاري",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consultant_ref",
+   "fieldtype": "Data",
+   "label": "رقم خطاب الاستشاري",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recorded_by",
+   "fieldtype": "Link",
+   "label": "سجّله",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_section",
+   "fieldtype": "Section Break",
+   "label": "الرد",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "response_file",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "الملف المختوم",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_comments",
+   "fieldtype": "Small Text",
+   "label": "ملاحظات الاستشاري",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_section",
+   "fieldtype": "Section Break",
+   "label": "قرار الإدارة",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision",
+   "fieldtype": "Small Text",
+   "label": "القرار",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_by",
+   "fieldtype": "Link",
+   "label": "بواسطة",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_on",
+   "fieldtype": "Datetime",
+   "label": "في",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-26 23:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Task Submittal Revision",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

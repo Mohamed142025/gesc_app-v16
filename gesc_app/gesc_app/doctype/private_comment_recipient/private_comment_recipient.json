@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "creation": "2026-09-27 03:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "read_on"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "المستلم",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "read_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "قرأه في",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-27 03:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Private Comment Recipient",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
