@@ -26,11 +26,9 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # Bump asset query versions when changing raw static files.
-app_include_css = "/assets/gesc_app/css/notification_counter.css?v=5"
 app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
 	"/assets/gesc_app/js/item_description.js?v=1",
-	"/assets/gesc_app/js/notification_counter.js?v=4",
 	"/assets/gesc_app/js/private_comments.js?v=1",
 ]
 
@@ -166,7 +164,6 @@ boot_session = "gesc_app.gesc_app.private_comments.boot_session"
 
 doc_events = {
 	"*": {
-		"on_update": "gesc_app.gesc_app.notification_handler.notify_assignees_on_update",
 		"validate": "gesc_app.item_description_setup.validate_item_descriptions",
 	},
 	"Task": {
