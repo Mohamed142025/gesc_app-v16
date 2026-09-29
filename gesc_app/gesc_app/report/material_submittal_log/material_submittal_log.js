@@ -5,6 +5,12 @@ frappe.query_reports["Material Submittal Log"] = {
 	filters: [
 		{ fieldname: "project", label: __("المشروع"), fieldtype: "Link", options: "Project" },
 		{
+			fieldname: "kind",
+			label: __("النوع"),
+			fieldtype: "Select",
+			options: ["", "مواد", "رسومات تفصيلية", "حسابات إنشائية"].join("\n"),
+		},
+		{
 			fieldname: "state",
 			label: __("الحالة"),
 			fieldtype: "Select",

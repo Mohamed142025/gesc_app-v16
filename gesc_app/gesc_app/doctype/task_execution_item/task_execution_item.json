@@ -21,14 +21,17 @@
   "site_engineer_notes",
   "technical_office_section",
   "technical_office_attachment",
+  "attachment_type",
   "column_break_technical_office",
   "technical_office_notes",
   "approval_section",
-  "site_engineer_approval_notes"
+  "site_engineer_approval_notes",
+  "consultant_section",
+  "consultant_notes"
  ],
  "fields": [
   {
-   "columns": 3,
+   "columns": 2,
    "fieldname": "item_code",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -69,7 +72,7 @@
   {
    "columns": 1,
    "default": "0",
-   "depends_on": "eval:!(parent && (parent.custom_is_pre_quotation_inspection || parent.custom_is_material_submittal))",
+   "depends_on": "eval:!(parent && parent.custom_is_pre_quotation_inspection)",
    "fieldname": "is_rejected",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -82,7 +85,7 @@
    "label": "مهندس الموقع"
   },
   {
-   "columns": 2,
+   "columns": 1,
    "depends_on": "eval:!(parent && parent.custom_is_material_submittal)",
    "fieldname": "site_engineer_attachment",
    "fieldtype": "Attach",
@@ -102,16 +105,16 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:parent && (parent.custom_is_pre_quotation_inspection || parent.custom_is_material_submittal)",
    "fieldname": "item_description",
    "fieldtype": "Link",
    "label": "التوصيف من المكتبة",
    "options": "Item Description"
   },
   {
-   "depends_on": "eval:parent && (parent.custom_is_pre_quotation_inspection || parent.custom_is_material_submittal)",
+   "columns": 2,
    "fieldname": "description",
    "fieldtype": "Small Text",
+   "in_list_view": 1,
    "label": "التوصيف"
   },
   {
@@ -132,11 +135,20 @@
    "label": "المكتب الفني"
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "technical_office_attachment",
    "fieldtype": "Attach",
    "in_list_view": 1,
    "label": "مرفقات المكتب الفني",
+   "permlevel": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "attachment_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "نوع المرفق",
+   "options": "Attachment Type",
    "permlevel": 1
   },
   {
@@ -160,11 +172,23 @@
    "fieldtype": "Small Text",
    "label": "ملاحظات اعتماد مهندس الموقع",
    "read_only": 1
+  },
+  {
+   "depends_on": "eval:parent && parent.custom_is_material_submittal",
+   "fieldname": "consultant_section",
+   "fieldtype": "Section Break",
+   "label": "رد الاستشاري"
+  },
+  {
+   "fieldname": "consultant_notes",
+   "fieldtype": "Small Text",
+   "label": "ملاحظات الاستشاري على البند",
+   "read_only": 1
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-09-26 23:00:00.000000",
+ "modified": "2026-09-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Gesc App",
  "name": "Task Execution Item",

@@ -1,14 +1,21 @@
 # Copyright (c) 2026, mohamed sayed and contributors
 # For license information, please see license.txt
 
-"""Material Submittal Log: one line per submittal with its latest revision, as asked for
-in consultant meetings."""
+"""Submittal log: one line per submittal (materials, detailed drawings or structural
+calculations) with its latest revision, as asked for in consultant meetings."""
 
 import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, nowdate
 
 from gesc_app.gesc_app.material_submittal import STATE_SUBMITTED
+
+# The report's name for each kind of submittal, by the check on its task.
+KINDS = {
+	"custom_is_material_submittal": "مواد",
+	"custom_is_drawing_submittal": "رسومات تفصيلية",
+	"custom_is_calculation_submittal": "حسابات إنشائية",
+}
 
 
 def execute(filters=None):
@@ -21,8 +28,9 @@ def get_columns():
 		{"fieldname": "submittal_no", "label": _("رقم الـ Submittal"), "fieldtype": "Data", "width": 170},
 		{"fieldname": "revision", "label": _("Rev"), "fieldtype": "Data", "width": 60},
 		{"fieldname": "task", "label": _("المهمة"), "fieldtype": "Link", "options": "Task", "width": 130},
+		{"fieldname": "kind", "label": _("النوع"), "fieldtype": "Data", "width": 110},
 		{"fieldname": "subject", "label": _("الموضوع"), "fieldtype": "Data", "width": 200},
-		{"fieldname": "materials", "label": _("المواد"), "fieldtype": "Data", "width": 220},
+		{"fieldname": "materials", "label": _("المواد / الملفات"), "fieldtype": "Data", "width": 220},
 		{"fieldname": "project", "label": _("المشروع"), "fieldtype": "Link", "options": "Project", "width": 110},
 		{"fieldname": "state", "label": _("الحالة"), "fieldtype": "Data", "width": 190},
 		{"fieldname": "response_code", "label": _("الكود"), "fieldtype": "Data", "width": 200},
@@ -36,7 +44,8 @@ def get_columns():
 
 
 def get_data(filters):
-	conditions = {"custom_is_material_submittal": 1}
+	flags = [flag for flag, label in KINDS.items() if not filters.kind or label == filters.kind]
+	conditions = {}
 	if filters.project:
 		conditions["project"] = filters.project
 	if filters.state:
@@ -45,9 +54,10 @@ def get_data(filters):
 	tasks = frappe.get_all(
 		"Task",
 		filters=conditions,
+		or_filters={flag: 1 for flag in flags},
 		fields=[
 			"name", "subject", "project", "workflow_state", "custom_submittal_no",
-			"custom_submittal_revision", "custom_response_due_date",
+			"custom_submittal_revision", "custom_response_due_date", *KINDS,
 		],
 		order_by="custom_submittal_no asc, creation asc",
 	)
@@ -77,6 +87,22 @@ def get_data(filters):
 			label = f"{label} ({row.manufacturer})"
 		materials.setdefault(row.parent, []).append(label)
 
+	# A drawing or calculation reads as its type and note.
+	for row in frappe.get_all(
+		"Task Submittal Attachment",
+		filters={
+			"parenttype": "Task",
+			"parent": ["in", names],
+			"parentfield": ["in", ["custom_drawings", "custom_calculations"]],
+		},
+		fields=["parent", "attachment_type", "notes"],
+		order_by="parent, idx",
+	):
+		label = row.attachment_type or ""
+		if (row.notes or "").strip():
+			label = f"{label} ({row.notes.strip()})"
+		materials.setdefault(row.parent, []).append(label)
+
 	today = getdate(nowdate())
 	data = []
 	for task in tasks:
@@ -104,6 +130,7 @@ def get_data(filters):
 				"submittal_no": task.custom_submittal_no or "",
 				"revision": f"Rev {int(last.revision):02d}" if rows else "",
 				"task": task.name,
+				"kind": next((label for flag, label in KINDS.items() if task.get(flag)), ""),
 				"subject": task.subject,
 				"materials": "، ".join(materials.get(task.name, [])),
 				"project": task.project,

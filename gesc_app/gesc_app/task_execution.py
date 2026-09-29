@@ -6,8 +6,12 @@ Two kinds of task use the items table and the same workflow:
   quantities and documents, and the Site Engineer either approves (which raises a
   purchase Material Request for the project warehouse) or sends the task back with notes.
 - Pre-quotation inspections: the Site Engineer records each item with site documents
-  and a description, the Technical Office sets the quantities, and a Quotation is made
-  from the task with the same items.
+  and a description, and the Technical Office confirms the quantities. Starting work
+  makes a draft Quotation with the same items, in which the quantities and prices are
+  finished; submitting that Quotation completes the task.
+
+Submittals (materials, detailed drawings, structural calculations) share the workflow
+and are handled in material_submittal.
 """
 
 import frappe
@@ -41,6 +45,14 @@ ACTION_START_NOTES = "بدء العمل على الملاحظات"
 ACTION_NOTES_DONE = "تم العمل على الملاحظات"
 ACTION_INSPECTED = "تم المعاينة"
 
+# The kind of a task comes from a check on its Task Type, fetched onto the task.
+SUBMITTAL_FLAGS = (
+	"custom_is_material_submittal",
+	"custom_is_drawing_submittal",
+	"custom_is_calculation_submittal",
+)
+KIND_FLAGS = ("custom_has_work_items", "custom_is_pre_quotation_inspection", *SUBMITTAL_FLAGS)
+
 # States in which the Technical Office works on the items, and those waiting for the
 # Site Engineer's decision.
 TECHNICAL_OFFICE_STATES = (
@@ -50,6 +62,8 @@ TECHNICAL_OFFICE_STATES = (
 	STATE_NOTES_IN_PROGRESS,
 	STATE_INSPECTED,
 )
+# Once work starts on an inspection, quantities and prices live in its Quotation.
+INSPECTION_OFFICE_STATES = (STATE_INSPECTED,)
 DECISION_STATES = (STATE_EXECUTED, STATE_NOTES_DONE)
 
 SITE_ENGINEER_FIELDS = (
@@ -60,7 +74,7 @@ SITE_ENGINEER_FIELDS = (
 	"description",
 	"initial_qty",
 )
-TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_attachment", "technical_office_notes")
+TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_attachment", "attachment_type", "technical_office_notes")
 REVIEW_FIELDS = ("is_rejected", "site_engineer_approval_notes")
 
 ATTACHMENT_ROLES = {
@@ -68,11 +82,16 @@ ATTACHMENT_ROLES = {
 	"technical_office_attachment": "المكتب الفني",
 }
 
-# Attachment type in the Quotation's attachments table for each side's files.
-QUOTATION_ATTACHMENT_TYPES = {
-	"site_engineer_attachment": "صور الموقع",
-	"technical_office_attachment": "مخطط / رسم هندسي",
+# Task-level tables of Technical Office files, and how the document history names them.
+ATTACHMENT_TABLES = {
+	"custom_technical_office_attachments": "مرفقات المهمة",
+	"custom_drawings": "جدول الرسومات",
+	"custom_calculations": "جدول الحسابات الإنشائية",
 }
+
+# The site photos go to the Quotation's attachments table; the Technical Office's file
+# goes on the Quotation item itself.
+SITE_PHOTOS_TYPE = "صور الموقع"
 
 
 def validate_task(doc, method=None):
@@ -85,14 +104,13 @@ def validate_task(doc, method=None):
 	if before and old_state != STATE_OPEN:
 		if doc.type != before.type:
 			frappe.throw(_("لا يمكن تغيير نوع المهمة بعد إرسالها للمكتب الفني."))
-		doc.custom_has_work_items = before.custom_has_work_items
-		doc.custom_is_pre_quotation_inspection = before.custom_is_pre_quotation_inspection
-		doc.custom_is_material_submittal = before.custom_is_material_submittal
+		for flag in KIND_FLAGS:
+			doc.set(flag, before.get(flag))
 
-	if not _uses_items(doc) and not (before and _uses_items(before)):
+	if not _in_workflow(doc) and not (before and _in_workflow(before)):
 		return
 
-	is_submittal = doc.get("custom_is_material_submittal") or (before and before.get("custom_is_material_submittal"))
+	is_submittal = _is_submittal(doc) or (before and _is_submittal(before))
 	if old_state == STATE_OPEN or (is_submittal and old_state == STATE_IN_PROGRESS):
 		_set_item_descriptions(doc)
 	_keep_system_fields(doc, before)
@@ -110,10 +128,23 @@ def validate_task(doc, method=None):
 
 
 def on_task_update(doc, method=None):
-	if doc.get("custom_is_material_submittal"):
+	if _is_submittal(doc):
 		from gesc_app.gesc_app import material_submittal
 
 		material_submittal.on_update(doc)
+		return
+
+	if doc.get("custom_is_pre_quotation_inspection"):
+		if doc.flags.make_quotation:
+			doc.flags.make_quotation = None
+			quotation = _create_task_quotation(doc)
+			frappe.msgprint(
+				_("تم إنشاء عرض السعر {0} بالبنود؛ أكمل فيه الكميات والأسعار.").format(
+					get_link_to_form("Quotation", quotation)
+				),
+				alert=True,
+				indicator="green",
+			)
 		return
 
 	if not doc.get("custom_has_work_items"):
@@ -173,33 +204,37 @@ def get_task_quotation(task):
 
 @frappe.whitelist()
 def make_quotation(source_name, target_doc=None):
-	from frappe.model.mapper import get_mapped_doc
-
+	"""Opened by hand when the Quotation made on starting work was deleted, or for an
+	inspection finished before Quotations were made automatically."""
 	task = frappe.get_doc("Task", source_name)
 	task.check_permission("read")
 	if not task.get("custom_is_pre_quotation_inspection"):
 		frappe.throw(_("عرض السعر يُنشأ من مهام معاينة ما قبل التسعير فقط."))
-	if task.get("workflow_state") != STATE_DONE:
-		frappe.throw(_("أنشئ عرض السعر بعد وصول المهمة إلى حالة «{0}».").format(STATE_DONE))
+	if task.get("workflow_state") not in (STATE_IN_PROGRESS, STATE_DONE):
+		frappe.throw(_("عرض السعر يُنشأ بعد بدء المكتب الفني العمل على المعاينة."))
 	existing = _get_task_quotation(task.name)
 	if existing:
 		frappe.throw(_("للمهمة عرض سعر بالفعل: {0}").format(get_link_to_form("Quotation", existing)))
+	return _map_quotation(source_name, target_doc)
+
+
+def _map_quotation(source_name, target_doc=None):
+	from frappe.model.mapper import get_mapped_doc
 
 	def set_missing_values(source, target):
 		if source.get("custom_customer"):
 			target.quotation_to = "Customer"
 			target.party_name = source.custom_customer
 		for row in source.custom_execution_items:
-			for fieldname, attachment_type in QUOTATION_ATTACHMENT_TYPES.items():
-				if row.get(fieldname):
-					target.append(
-						"custom_attachments",
-						{
-							"attachment_type": attachment_type,
-							"attachment": row.get(fieldname),
-							"remarks": _("البند {0}: {1}").format(row.idx, row.item_name or row.item_code),
-						},
-					)
+			if row.get("site_engineer_attachment"):
+				target.append(
+					"custom_attachments",
+					{
+						"attachment_type": SITE_PHOTOS_TYPE,
+						"attachment": row.site_engineer_attachment,
+						"remarks": _("البند {0}: {1}").format(row.idx, row.item_name or row.item_code),
+					},
+				)
 		target.run_method("set_missing_values")
 		target.run_method("calculate_taxes_and_totals")
 
@@ -211,7 +246,10 @@ def make_quotation(source_name, target_doc=None):
 			"Task": {"doctype": "Quotation", "field_no_map": ["status"]},
 			"Task Execution Item": {
 				"doctype": "Quotation Item",
-				"field_map": {"item_description": "custom_item_description"},
+				"field_map": {
+					"item_description": "custom_item_description",
+					"technical_office_attachment": "custom_attachment",
+				},
 			},
 		},
 		target_doc,
@@ -219,21 +257,67 @@ def make_quotation(source_name, target_doc=None):
 	)
 
 
+def _create_task_quotation(task):
+	"""The draft Quotation made when the Technical Office starts work on an inspection."""
+	existing = _get_task_quotation(task.name)
+	if existing:
+		return existing
+	quotation = _map_quotation(task.name)
+	# Made by the workflow itself, whoever starts the work.
+	quotation.flags.ignore_permissions = True
+	quotation.insert()
+	return quotation.name
+
+
 def link_quotation_to_task(doc, method=None):
 	"""Point the task at its Quotation, so the Quotation lists the task in its connections."""
-	if not doc.get("custom_task") or doc.docstatus == 2:
+	if not doc.get("custom_task") or doc.docstatus == 2 or doc.get("custom_is_addendum"):
 		return
 	if frappe.db.get_value("Task", doc.custom_task, "custom_quotation") != doc.name:
 		frappe.db.set_value("Task", doc.custom_task, "custom_quotation", doc.name, update_modified=False)
 
 
+def complete_inspection(doc, method=None):
+	"""Submitting the Quotation made from an inspection completes the inspection.
+
+	The task is written directly: whoever submits the Quotation (usually sales) holds no
+	workflow transition on the task, and the Quotation must not be held up by it."""
+	if not doc.get("custom_task") or doc.get("custom_is_addendum"):
+		return
+	task = frappe.get_doc("Task", doc.custom_task)
+	if not task.get("custom_is_pre_quotation_inspection") or task.get("workflow_state") != STATE_IN_PROGRESS:
+		return
+
+	task.db_set(
+		{
+			"workflow_state": STATE_DONE,
+			"status": "Completed",
+			"completed_on": task.completed_on or nowdate(),
+			"completed_by": task.completed_by or frappe.session.user,
+		}
+	)
+	# What ERPNext does when a task is saved as Completed: the project's progress and the
+	# task's open assignments.
+	task.update_project()
+	task.unassign_todo()
+	task.add_comment("Info", _("اكتملت المهمة تلقائياً بتسجيل عرض السعر {0} نهائياً.").format(doc.name))
+	frappe.msgprint(
+		_("اكتملت مهمة المعاينة {0}.").format(get_link_to_form("Task", task.name)), alert=True, indicator="green"
+	)
+
+
 def validate_task_type(doc, method=None):
-	kinds = [f for f in ("custom_has_work_items", "custom_is_pre_quotation_inspection", "custom_is_material_submittal") if doc.get(f)]
-	if len(kinds) > 1:
-		frappe.throw(_("نوع المهمة يكون نوعاً واحداً فقط: «له بنود أعمال» أو «معاينة ما قبل التسعير» أو «is Material Submittal»."))
+	if len([f for f in KIND_FLAGS if doc.get(f)]) > 1:
+		frappe.throw(
+			_(
+				"نوع المهمة يكون نوعاً واحداً فقط: «له بنود أعمال» أو «معاينة ما قبل التسعير» أو «is Material Submittal» أو «اعتماد الرسومات التفصيلية» أو «اعتماد الحسابات الإنشائية»."
+			)
+		)
 
 
-def create_material_request(task):
+def create_material_request(task, quantities=None):
+	"""A purchase Material Request for the task's items on the project warehouse, with
+	each item's quantity, or the quantity given for its row in `quantities`."""
 	existing = frappe.db.get_value("Material Request", {"custom_task": task.name, "docstatus": ("<", 2)})
 	if existing:
 		return existing
@@ -254,6 +338,9 @@ def create_material_request(task):
 	)
 
 	for row in task.custom_execution_items:
+		qty = flt(quantities.get(row.name)) if quantities is not None else flt(row.qty)
+		if qty <= 0:
+			continue
 		item = frappe.get_cached_value("Item", row.item_code, ["stock_uom", "description"], as_dict=True)
 		uom = row.uom or item.stock_uom
 		material_request.append(
@@ -261,8 +348,9 @@ def create_material_request(task):
 			{
 				"item_code": row.item_code,
 				"item_name": row.item_name,
-				"description": item.description or row.item_name,
-				"qty": row.qty,
+				# The description written on the task tells purchasing what exactly to buy.
+				"description": (row.description or "").strip() or item.description or row.item_name,
+				"qty": qty,
 				"uom": uom,
 				"stock_uom": item.stock_uom,
 				"conversion_factor": _get_conversion_factor(row.item_code, uom),
@@ -369,7 +457,14 @@ def _validate_item_changes(doc, before, old_state):
 	if site_engineer_changed and old_state != STATE_OPEN:
 		frappe.throw(_("لا يمكن إضافة أو حذف البنود أو تعديل بيانات مهندس الموقع بعد إرسال المهمة للمكتب الفني."))
 
-	if technical_office_changed and old_state not in TECHNICAL_OFFICE_STATES:
+	if technical_office_changed and doc.get("custom_is_pre_quotation_inspection") and old_state == STATE_IN_PROGRESS:
+		frappe.throw(
+			_("بدأ العمل على المعاينة، فالكميات والمرفقات تُستكمل في عرض السعر {0}.").format(
+				doc.get("custom_quotation") or ""
+			)
+		)
+	office_states = INSPECTION_OFFICE_STATES if doc.get("custom_is_pre_quotation_inspection") else TECHNICAL_OFFICE_STATES
+	if technical_office_changed and old_state not in office_states:
 		frappe.throw(
 			_("الكمية ومرفقات وملاحظات المكتب الفني تُعدَّل فقط والمهمة عند المكتب الفني (الحالة الحالية: {0}).").format(
 				old_state
@@ -381,7 +476,7 @@ def _validate_item_changes(doc, before, old_state):
 
 
 def _apply_transition(doc, new_state):
-	if not _uses_items(doc):
+	if not (doc.get("custom_has_work_items") or doc.get("custom_is_pre_quotation_inspection")):
 		frappe.throw(_("نوع المهمة ليس له بنود أعمال ولا معاينة."))
 
 	rows = doc.custom_execution_items
@@ -433,16 +528,40 @@ def _apply_inspection_transition(doc, new_state):
 			)
 		if not (doc.get("custom_project_name") or "").strip():
 			frappe.throw(_("اكتب اسم المشروع في «بيانات المشروع / الموقع»."))
+		_check_customer(doc)
+		_check_sales_items(rows)
 
 	elif new_state == STATE_IN_PROGRESS:
 		# The Technical Office starts from the Site Engineer's figures.
 		for row in rows:
 			if not flt(row.qty) and flt(row.initial_qty):
 				row.qty = row.initial_qty
+		_check_customer(doc)
+		_check_sales_items(rows)
+		_validate_quantities_and_documents(rows, documents=False)
+		# The Quotation is made once the task is saved in its new state.
+		doc.flags.make_quotation = True
 
 	elif new_state == STATE_DONE:
 		_validate_quantities_and_documents(rows, documents=False)
 		_set_completed(doc)
+
+
+def _check_sales_items(rows):
+	"""A Quotation takes sales items only; said here in the inspection's terms."""
+	codes = {row.item_code for row in rows}
+	not_for_sale = frappe.get_all("Item", filters={"name": ["in", list(codes) or [""]], "is_sales_item": 0}, pluck="name")
+	if not_for_sale:
+		frappe.throw(
+			_("الأصناف التالية ليست أصناف بيع فلا تدخل عرض السعر: {0}. فعّل «Is Sales Item» في شاشة الصنف أو اختر صنفاً آخر.").format(
+				", ".join(sorted(not_for_sale))
+			)
+		)
+
+
+def _check_customer(doc):
+	if not doc.get("custom_customer"):
+		frappe.throw(_("اختر العميل في «بيانات المشروع / الموقع»؛ عرض السعر يُنشأ باسمه عند بدء العمل."))
 
 
 def _set_completed(doc):
@@ -506,6 +625,28 @@ def _log_documents(doc, before):
 					},
 				)
 
+	for table, source in ATTACHMENT_TABLES.items():
+		previous_files = {row.name: row.attachment for row in before.get(table)} if before else {}
+		for row in doc.get(table):
+			role = ATTACHMENT_ROLES["technical_office_attachment"]
+			if (
+				row.attachment
+				and row.attachment != previous_files.get(row.name)
+				and (row.idx, role, row.attachment) not in logged
+			):
+				doc.append(
+					"custom_execution_documents",
+					{
+						"row_no": row.idx,
+						"item_name": f"{source}: {row.attachment_type}" if row.attachment_type else source,
+						"uploaded_by_role": role,
+						"review_round": review_round,
+						"file": row.attachment,
+						"uploaded_by": frappe.session.user,
+						"uploaded_on": now_datetime(),
+					},
+				)
+
 
 def _changed(row, old, fieldnames):
 	for fieldname in fieldnames:
@@ -519,12 +660,12 @@ def _changed(row, old, fieldnames):
 	return False
 
 
-def _uses_items(doc):
-	return (
-		doc.get("custom_has_work_items")
-		or doc.get("custom_is_pre_quotation_inspection")
-		or doc.get("custom_is_material_submittal")
-	)
+def _in_workflow(doc):
+	return any(doc.get(flag) for flag in KIND_FLAGS)
+
+
+def _is_submittal(doc):
+	return any(doc.get(flag) for flag in SUBMITTAL_FLAGS)
 
 
 def _set_item_descriptions(doc):
@@ -540,8 +681,12 @@ def _set_item_descriptions(doc):
 
 
 def _get_task_quotation(task):
+	# An addendum copies the link from its main Quotation but is not the inspection's.
 	return frappe.db.get_value(
-		"Quotation", {"custom_task": task, "docstatus": ("<", 2)}, "name", order_by="creation desc"
+		"Quotation",
+		{"custom_task": task, "docstatus": ("<", 2), "custom_is_addendum": 0},
+		"name",
+		order_by="creation desc",
 	)
 
 

@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "creation": "2026-09-29 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment",
+  "attachment_type",
+  "column_break_notes",
+  "notes",
+  "consultant_section",
+  "is_rejected",
+  "column_break_consultant",
+  "consultant_notes"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "المرفق",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "attachment_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "نوع المرفق",
+   "options": "Attachment Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_notes",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 3,
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "ملاحظات"
+  },
+  {
+   "fieldname": "consultant_section",
+   "fieldtype": "Section Break",
+   "label": "رد الاستشاري"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_rejected",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "مرفوض",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_consultant",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "consultant_notes",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "ملاحظات الاستشاري",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Task Submittal Attachment",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -194,7 +194,10 @@ doc_events = {
 			"gesc_app.gesc_app.quotation_approval.on_update",
 		],
 		"before_submit": "gesc_app.gesc_app.quotation_approval.before_submit",
-		"on_submit": "gesc_app.gesc_app.quotation_addendum.on_submit",
+		"on_submit": [
+			"gesc_app.gesc_app.quotation_addendum.on_submit",
+			"gesc_app.gesc_app.task_execution.complete_inspection",
+		],
 		"before_print": "gesc_app.gesc_app.quotation_approval.before_print",
 	},
 	"Communication": {

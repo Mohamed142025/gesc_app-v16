@@ -1,9 +1,12 @@
-"""Setup for execution items and pre-quotation inspections on Task: fields, roles,
-permissions, workflow and task types.
+"""Setup for execution items, pre-quotation inspections and submittals on Task: fields,
+roles, permissions, workflow, task types and attachment types.
 
-Runs after every migrate. Custom fields follow the code. Roles, permission rules and task
-types are only created when missing, and the workflow only gets the states and transitions
-it lacks, so changes made to them from the UI are kept.
+Runs after every migrate. Custom fields follow the code. Roles, permission rules, task
+types and attachment types are only created when missing, and the workflow only gets the
+states and transitions it lacks, so changes made to them from the UI are kept. The two
+workflow changes made by the code itself (submittal conditions widened to the drawing and
+calculation kinds, and the inspection finished by its Quotation) apply only to the rows
+as the code first made them.
 """
 
 import frappe
@@ -20,6 +23,7 @@ from gesc_app.gesc_app.task_execution import (
 	ACTION_START_NOTES,
 	INSPECTION_TYPE_NAME,
 	SITE_ENGINEER,
+	SITE_PHOTOS_TYPE,
 	STATE_APPROVED,
 	STATE_DONE,
 	STATE_EXECUTED,
@@ -43,7 +47,9 @@ from gesc_app.gesc_app.material_submittal import (
 	ACTION_RESUBMIT,
 	ACTION_START_CORRECTIONS,
 	ACTION_SUBMIT,
+	CALCULATION_TYPE_NAME,
 	DOCUMENT_CONTROLLER,
+	DRAWING_TYPE_NAME,
 	OPERATIONS,
 	PROJECTS_MANAGER,
 	STATE_APPROVED_COMMENTS,
@@ -56,13 +62,18 @@ from gesc_app.gesc_app.material_submittal import (
 
 MODULE = "Gesc App"
 USES_ITEMS = "eval:doc.custom_has_work_items || doc.custom_is_pre_quotation_inspection || doc.custom_is_material_submittal"
+IN_WORKFLOW = "eval:doc.custom_has_work_items || doc.custom_is_pre_quotation_inspection || doc.custom_is_material_submittal || doc.custom_is_drawing_submittal || doc.custom_is_calculation_submittal"
 IS_INSPECTION = "eval:doc.custom_is_pre_quotation_inspection"
-IS_SUBMITTAL = "eval:doc.custom_is_material_submittal"
+SUBMITTAL_JS = "doc.custom_is_material_submittal || doc.custom_is_drawing_submittal || doc.custom_is_calculation_submittal"
+IS_SUBMITTAL = f"eval:{SUBMITTAL_JS}"
+IS_MATERIAL_SUBMITTAL = "eval:doc.custom_is_material_submittal"
 
-# Transition conditions keep the two kinds of task apart.
+# Transition conditions keep the kinds of task apart.
 EXECUTION = "doc.custom_has_work_items"
 INSPECTION = "doc.custom_is_pre_quotation_inspection"
-SUBMITTAL = "doc.custom_is_material_submittal"
+SUBMITTAL = "doc.custom_is_material_submittal or doc.custom_is_drawing_submittal or doc.custom_is_calculation_submittal"
+# The submittal condition before drawing and calculation submittals shared the workflow.
+MATERIAL_ONLY_SUBMITTAL = "doc.custom_is_material_submittal"
 
 ROLE_TRANSLATIONS = {
 	SITE_ENGINEER: "مهندس الموقع",
@@ -103,7 +114,6 @@ TRANSITIONS = (
 	(STATE_NOTES_DONE, ACTION_NOTES, STATE_NOTES, SITE_ENGINEER, EXECUTION),
 	(STATE_OPEN, ACTION_INSPECTED, STATE_INSPECTED, SITE_ENGINEER, INSPECTION),
 	(STATE_INSPECTED, ACTION_START, STATE_IN_PROGRESS, TECHNICAL_OFFICE, INSPECTION),
-	(STATE_IN_PROGRESS, ACTION_EXECUTED, STATE_DONE, TECHNICAL_OFFICE, INSPECTION),
 	(STATE_OPEN, ACTION_START, STATE_IN_PROGRESS, TECHNICAL_OFFICE, SUBMITTAL),
 	(STATE_IN_PROGRESS, ACTION_SUBMIT, STATE_SUBMITTED, TECHNICAL_OFFICE, SUBMITTAL),
 	(STATE_SUBMITTED, ACTION_CODE_APPROVED, STATE_APPROVED, DOCUMENT_CONTROLLER, SUBMITTAL),
@@ -113,6 +123,29 @@ TRANSITIONS = (
 	(STATE_CORRECTIONS, ACTION_START_CORRECTIONS, STATE_IN_PROGRESS, TECHNICAL_OFFICE, SUBMITTAL),
 	(STATE_REWORK, ACTION_RESUBMIT, STATE_IN_PROGRESS, PROJECTS_MANAGER, SUBMITTAL),
 	(STATE_REWORK, ACTION_CANCEL, STATE_CANCELLED, PROJECTS_MANAGER, SUBMITTAL),
+)
+
+# Transitions the code no longer offers: an inspection is finished by submitting its
+# Quotation, not by hand.
+REMOVED_TRANSITIONS = ((STATE_IN_PROGRESS, ACTION_EXECUTED, STATE_DONE, INSPECTION),)
+
+# Attachment types the code refers to, or existing records already use.
+REQUIRED_ATTACHMENT_TYPES = (
+	SITE_PHOTOS_TYPE,
+	"مخطط / رسم هندسي",
+	"جدول الكميات (BOQ)",
+	"إثبات هوية",
+	"أخرى",
+)
+# A starting list for submittals, created on the first setup only.
+DEFAULT_ATTACHMENT_TYPES = (
+	"Data Sheet",
+	"كتالوج",
+	"شهادة مطابقة / منشأ",
+	"صورة عينة",
+	"مواصفات فنية",
+	"رسم تنفيذي (Shop Drawing)",
+	"مذكرة حسابية",
 )
 
 # doctype, role, permlevel, rights
@@ -139,6 +172,12 @@ PERMISSIONS = (
 	("Project", DOCUMENT_CONTROLLER, 0, {"read": 1}),
 	("Item", DOCUMENT_CONTROLLER, 0, {"read": 1}),
 	("Item Description", DOCUMENT_CONTROLLER, 0, {"read": 1}),
+	# The Technical Office completes a missing customer before starting an inspection.
+	("Customer", TECHNICAL_OFFICE, 0, {"read": 1}),
+	# Attachment types are kept up to date by the people who upload the files.
+	("Attachment Type", TECHNICAL_OFFICE, 0, {"read": 1, "write": 1, "create": 1, "report": 1}),
+	("Attachment Type", DOCUMENT_CONTROLLER, 0, {"read": 1, "write": 1, "create": 1, "report": 1}),
+	("Attachment Type", SITE_ENGINEER, 0, {"read": 1}),
 )
 
 
@@ -149,6 +188,7 @@ def setup_task_execution():
 	setup_workflow()
 	setup_task_types()
 	setup_submittal_settings()
+	setup_attachment_types()
 	frappe.clear_cache(doctype="Task")
 
 
@@ -176,6 +216,22 @@ def setup_custom_fields():
 					"fieldtype": "Check",
 					"insert_after": "custom_is_pre_quotation_inspection",
 					"description": "اعتماد مواد من الاستشاري أو المالك بالأكواد: Approved / Approved with Comments / Rejected – Corrections Required / Rejected – Rework Required.",
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_is_drawing_submittal",
+					"label": "اعتماد الرسومات التفصيلية",
+					"fieldtype": "Check",
+					"insert_after": "custom_is_material_submittal",
+					"description": "نفس دورة اعتماد المواد، وبدل بنود التنفيذ جدول الرسومات (المرفق، نوع المرفق، ملاحظات).",
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_is_calculation_submittal",
+					"label": "اعتماد الحسابات الإنشائية - Calculation",
+					"fieldtype": "Check",
+					"insert_after": "custom_is_drawing_submittal",
+					"description": "نفس دورة اعتماد المواد، وبدل بنود التنفيذ جدول الحسابات الإنشائية (المرفق، نوع المرفق، ملاحظات).",
 					"module": MODULE,
 				},
 			],
@@ -225,6 +281,26 @@ def setup_custom_fields():
 					"fieldtype": "Check",
 					"fetch_from": "type.custom_is_material_submittal",
 					"insert_after": "custom_is_pre_quotation_inspection",
+					"read_only": 1,
+					"hidden": 1,
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_is_drawing_submittal",
+					"label": "اعتماد الرسومات التفصيلية",
+					"fieldtype": "Check",
+					"fetch_from": "type.custom_is_drawing_submittal",
+					"insert_after": "custom_is_material_submittal",
+					"read_only": 1,
+					"hidden": 1,
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_is_calculation_submittal",
+					"label": "اعتماد الحسابات الإنشائية",
+					"fieldtype": "Check",
+					"fetch_from": "type.custom_is_calculation_submittal",
+					"insert_after": "custom_is_drawing_submittal",
 					"read_only": 1,
 					"hidden": 1,
 					"module": MODULE,
@@ -287,7 +363,7 @@ def setup_custom_fields():
 					"label": "بنود التنفيذ",
 					"fieldtype": "Tab Break",
 					"insert_after": "description",
-					"depends_on": USES_ITEMS,
+					"depends_on": IN_WORKFLOW,
 					"module": MODULE,
 				},
 				{
@@ -296,6 +372,50 @@ def setup_custom_fields():
 					"fieldtype": "Table",
 					"options": "Task Execution Item",
 					"insert_after": "custom_execution_tab",
+					"depends_on": USES_ITEMS,
+					"no_copy": 1,
+					"module": MODULE,
+				},
+				# Drawing and calculation submittals send files instead of items; the
+				# Technical Office writes them (field level 1).
+				{
+					"fieldname": "custom_drawings",
+					"label": "جدول الرسومات",
+					"fieldtype": "Table",
+					"options": "Task Submittal Attachment",
+					"insert_after": "custom_execution_items",
+					"depends_on": "eval:doc.custom_is_drawing_submittal",
+					"permlevel": 1,
+					"no_copy": 1,
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_calculations",
+					"label": "جدول الحسابات الإنشائية",
+					"fieldtype": "Table",
+					"options": "Task Submittal Attachment",
+					"insert_after": "custom_drawings",
+					"depends_on": "eval:doc.custom_is_calculation_submittal",
+					"permlevel": 1,
+					"no_copy": 1,
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_technical_office_attachments_section",
+					"label": "مرفقات المكتب الفني على مستوى المهمة",
+					"fieldtype": "Section Break",
+					"insert_after": "custom_calculations",
+					"depends_on": IS_MATERIAL_SUBMITTAL,
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_technical_office_attachments",
+					"label": "مرفقات المكتب الفني",
+					"fieldtype": "Table",
+					"options": "Task Submittal Attachment",
+					"insert_after": "custom_technical_office_attachments_section",
+					"description": "ملف واحد هنا على الأقل يجعل مرفق المكتب الفني في كل بند اختيارياً؛ بدونه يلزم مرفق لكل البنود.",
+					"permlevel": 1,
 					"no_copy": 1,
 					"module": MODULE,
 				},
@@ -303,7 +423,7 @@ def setup_custom_fields():
 					"fieldname": "custom_execution_approval_section",
 					"label": "الاعتماد",
 					"fieldtype": "Section Break",
-					"insert_after": "custom_execution_items",
+					"insert_after": "custom_technical_office_attachments",
 					"module": MODULE,
 				},
 				{
@@ -419,6 +539,28 @@ def setup_custom_fields():
 					"module": MODULE,
 				},
 			],
+			# A file for each item: the drawing or document it is priced on. Sales Orders made
+			# from the Quotation carry it (same fieldname).
+			"Quotation Item": [
+				{
+					"fieldname": "custom_attachment",
+					"label": "مرفق الصنف",
+					"fieldtype": "Attach",
+					"insert_after": "item_name",
+					"in_list_view": 1,
+					"columns": 1,
+					"module": MODULE,
+				},
+			],
+			"Sales Order Item": [
+				{
+					"fieldname": "custom_attachment",
+					"label": "مرفق الصنف",
+					"fieldtype": "Attach",
+					"insert_after": "item_name",
+					"module": MODULE,
+				},
+			],
 			"Quotation": [
 				# Kept on amendment, so every revision stays linked to the inspection.
 				{
@@ -510,10 +652,21 @@ def setup_workflow():
 			}
 		)
 
+	added = False
+	# Submittal transitions as first made cover materials only; drawings and calculations
+	# share them now.
+	for row in workflow.transitions:
+		if row.condition == MATERIAL_ONLY_SUBMITTAL:
+			row.condition = SUBMITTAL
+			added = True
+	for row in list(workflow.transitions):
+		if (row.state, row.action, row.next_state, row.condition) in REMOVED_TRANSITIONS:
+			workflow.remove(row)
+			added = True
+
 	# Only what is missing is added; rows already there, and changes to them, stay.
 	states = {row.state for row in workflow.states}
 	transitions = {(row.state, row.action, row.next_state, row.condition) for row in workflow.transitions}
-	added = False
 	for state, _style, allow_edit, status in STATES:
 		if state in states:
 			continue
@@ -575,14 +728,16 @@ def submittal_task_fields(insert_after):
 		("custom_submitted_on", "تاريخ الإرسال", "Date", {"read_only": 1, "no_copy": 1}),
 		("custom_response_due_date", "تاريخ الرد المتوقع", "Date", {"read_only": 1, "no_copy": 1}),
 		("custom_response_section", "رد الاستشاري", "Section Break",
-			{"depends_on": f'eval:doc.custom_is_material_submittal && doc.workflow_state == "{STATE_SUBMITTED}"'}),
+			{"depends_on": f'eval:({SUBMITTAL_JS}) && doc.workflow_state == "{STATE_SUBMITTED}"'}),
 		("custom_response_file", "الملف المختوم", "Attach", {"no_copy": 1}),
 		("custom_response_date", "تاريخ الرد", "Date", {"no_copy": 1}),
 		("custom_response_column", None, "Column Break", {}),
 		("custom_consultant_ref", "رقم خطاب الاستشاري", "Data", {"no_copy": 1}),
-		("custom_response_comments", "ملاحظات الاستشاري", "Small Text", {"no_copy": 1}),
+		("custom_response_comments", "ملاحظات الاستشاري", "Small Text", {"no_copy": 1,
+			"description": "نص أو ملف؛ أحدهما مطلوب مع الكودين 2 و4. مع الكود 3 تُكتب الملاحظات على البنود المرفوضة."}),
+		("custom_response_comments_file", "ملف ملاحظات الاستشاري", "Attach", {"no_copy": 1}),
 		("custom_rework_section", "قرار الإدارة", "Section Break",
-			{"depends_on": f'eval:doc.custom_is_material_submittal && doc.workflow_state == "{STATE_REWORK}"'}),
+			{"depends_on": f'eval:({SUBMITTAL_JS}) && doc.workflow_state == "{STATE_REWORK}"'}),
 		("custom_rework_decision", "القرار (اجتماع، تغيير آلية التنفيذ أو المواصفات)", "Small Text", {"no_copy": 1}),
 		("custom_submittal_revisions_section", "سجل المراجعات", "Section Break", {"depends_on": IS_SUBMITTAL}),
 		("custom_submittal_revisions", "سجل المراجعات", "Table",
@@ -604,6 +759,37 @@ def setup_task_types():
 		(TASK_TYPE_NAME, "custom_has_work_items"),
 		(INSPECTION_TYPE_NAME, "custom_is_pre_quotation_inspection"),
 		(SUBMITTAL_TYPE_NAME, "custom_is_material_submittal"),
+		(DRAWING_TYPE_NAME, "custom_is_drawing_submittal"),
+		(CALCULATION_TYPE_NAME, "custom_is_calculation_submittal"),
 	):
 		if not frappe.db.exists("Task Type", name):
 			frappe.get_doc({"doctype": "Task Type", flag: 1}).insert(ignore_permissions=True, set_name=name)
+
+
+def setup_attachment_types():
+	names = REQUIRED_ATTACHMENT_TYPES
+	if not frappe.db.count("Attachment Type"):
+		names += DEFAULT_ATTACHMENT_TYPES
+	for name in names:
+		if not frappe.db.exists("Attachment Type", name):
+			frappe.get_doc({"doctype": "Attachment Type", "attachment_type_name": name}).insert(
+				ignore_permissions=True
+			)
+
+	if not frappe.db.exists("Translation", {"language": "ar", "source_text": "Attachment Type"}):
+		frappe.get_doc(
+			{
+				"doctype": "Translation",
+				"language": "ar",
+				"source_text": "Attachment Type",
+				"translated_text": "نوع المرفق",
+			}
+		).insert(ignore_permissions=True)
+
+	# The item's attachment column in the Quotation grid takes its width from the item code.
+	if not frappe.db.exists(
+		"Property Setter", {"doc_type": "Quotation Item", "field_name": "item_code", "property": "columns"}
+	):
+		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+		make_property_setter("Quotation Item", "item_code", "columns", 3, "Int", validate_fields_for_doctype=False)

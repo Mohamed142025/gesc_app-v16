@@ -39,7 +39,8 @@ def boot_session(bootinfo):
 
 def setup_private_comments():
 	"""First run: on, for Task. Once the settings have been saved, they are left alone."""
-	if frappe.db.exists("Singles", {"doctype": "Private Comment Settings"}):
+	# Singles has no name column, so frappe.db.exists() cannot look it up.
+	if frappe.db.sql("select 1 from `tabSingles` where doctype = %s limit 1", "Private Comment Settings"):
 		return
 	settings = frappe.get_single("Private Comment Settings")
 	settings.enabled = 1

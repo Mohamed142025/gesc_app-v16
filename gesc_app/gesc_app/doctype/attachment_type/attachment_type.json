@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:attachment_type_name",
+ "creation": "2026-09-29 00:00:00.000000",
+ "description": "أنواع المرفقات المستخدمة في بنود التنفيذ وجداول الاعتمادات ومرفقات عروض الأسعار.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment_type_name",
+  "disabled",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "attachment_type_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "نوع المرفق",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "النوع المعطّل لا يظهر عند الاختيار، ويبقى في المستندات القديمة.",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "معطّل"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "الوصف"
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Attachment Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Projects User"
+  },
+  {
+   "read": 1,
+   "role": "Sales User"
+  }
+ ],
+ "quick_entry": 1,
+ "search_fields": "description",
+ "sort_field": "attachment_type_name",
+ "sort_order": "ASC",
+ "states": []
+}

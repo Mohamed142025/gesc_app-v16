@@ -150,6 +150,8 @@ def make_addendum(source_name, target_doc=None):
 				"doctype": "Quotation",
 				"field_no_map": [
 					"status",
+					# The addendum is additional work, not the inspection's Quotation.
+					"custom_task",
 					"transaction_date",
 					"valid_till",
 					"opportunity",
