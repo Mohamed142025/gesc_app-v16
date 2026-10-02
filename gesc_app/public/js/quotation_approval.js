@@ -12,10 +12,17 @@
 	const load_settings = () => (settings_request ||= frappe.xcall(API + "get_approval_settings"));
 
 	frappe.ui.form.on("Quotation", {
+		// Before the form's first refresh, which is when Frappe first draws its message.
+		setup(frm) {
+			keep_approval_message(frm);
+		},
+
 		refresh(frm) {
 			load_settings().then((settings) => {
+				const first_load = !frm.__approval;
 				frm.__approval = settings;
-				keep_approval_message(frm);
+				// The refresh that loaded the settings held Frappe's message back.
+				if (first_load && !uses_approval(frm)) frm.show_submit_message();
 				render(frm, settings);
 			});
 		},
@@ -34,11 +41,13 @@
 	});
 
 	// Frappe fills the same message area with "Submit this document to confirm" on every
-	// refresh; while approval is on, the approval status takes its place.
+	// refresh; while approval is on, the approval status takes its place. Until the settings
+	// arrive neither is known to apply, so nothing is drawn yet.
 	function keep_approval_message(frm) {
 		if (frm.__approval_message_kept) return;
 		const show_submit_message = frm.show_submit_message.bind(frm);
 		frm.show_submit_message = () => {
+			if (!frm.__approval) return;
 			if (uses_approval(frm)) show_status(frm);
 			else show_submit_message();
 		};
