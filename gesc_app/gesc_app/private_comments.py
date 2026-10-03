@@ -6,6 +6,10 @@ doctype, which no role can read; everything goes through the functions here, whi
 the participants. They show in the document's timeline through Frappe's
 additional_timeline_content hook, computed per user, so the other readers of the
 document never see them. Replies stay in the same conversation among its participants.
+
+Files sent with a comment are private files attached to the comment, not to the document,
+so they are not among the document's attachments; each is shared with the other
+participants, who alone can open it with its writer.
 """
 
 import frappe
@@ -14,6 +18,7 @@ from frappe.utils import cstr, escape_html, get_fullname, now_datetime, pretty_d
 
 CACHE_KEY = "gesc_private_comment_doctypes"
 MAX_LENGTH = 5000
+MAX_FILES = 10
 
 
 # Settings -----------------------------------------------------------------------------
@@ -52,12 +57,13 @@ def setup_private_comments():
 
 
 @frappe.whitelist()
-def add(reference_doctype, reference_name, content, recipients=None, reply_to=None):
+def add(reference_doctype, reference_name, content, recipients=None, reply_to=None, files=None):
 	content = cstr(content).strip()
 	if not content:
 		frappe.throw(_("اكتب نص التعليق."))
 	if len(content) > MAX_LENGTH:
 		frappe.throw(_("التعليق أطول من {0} حرف.").format(MAX_LENGTH))
+	files = _valid_files(frappe.parse_json(files) if isinstance(files, str) else files)
 
 	user = frappe.session.user
 	if reply_to:
@@ -87,6 +93,7 @@ def add(reference_doctype, reference_name, content, recipients=None, reply_to=No
 		}
 	).insert(ignore_permissions=True)
 
+	_attach_files(comment, files, to)
 	_share_with(reference_doctype, reference_name, to)
 	_notify(comment, to, is_reply=bool(reply_to))
 	return comment.name
@@ -97,10 +104,17 @@ def delete(name):
 	comment = frappe.get_doc("Private Comment", name)
 	if comment.owner != frappe.session.user:
 		frappe.throw(_("يحذف التعليق كاتبه فقط."), frappe.PermissionError)
+	names = [comment.name]
 	if not comment.thread:
-		for reply in frappe.get_all("Private Comment", {"thread": comment.name}, pluck="name"):
-			frappe.delete_doc("Private Comment", reply, ignore_permissions=True, delete_permanently=True)
-	frappe.delete_doc("Private Comment", comment.name, ignore_permissions=True, delete_permanently=True)
+		names += frappe.get_all("Private Comment", {"thread": comment.name}, pluck="name")
+	# Deleting a comment deletes its files, but not the shares that opened them to the others.
+	files = frappe.get_all(
+		"File", {"attached_to_doctype": "Private Comment", "attached_to_name": ["in", names]}, pluck="name"
+	)
+	if files:
+		frappe.db.delete("DocShare", {"share_doctype": "File", "share_name": ["in", files]})
+	for name in reversed(names):
+		frappe.delete_doc("Private Comment", name, ignore_permissions=True, delete_permanently=True)
 
 
 @frappe.whitelist()
@@ -179,9 +193,19 @@ def timeline(doctype, docname):
 	):
 		recipients.setdefault(row.parent, []).append(row)
 
+	files = {}
+	for row in frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Private Comment", "attached_to_name": ["in", [c.name for c in comments]]},
+		fields=["attached_to_name", "file_name", "file_url"],
+		order_by="creation asc",
+	):
+		files.setdefault(row.attached_to_name, []).append(row)
+
 	threads = {}
 	for comment in comments:
 		comment.recipients = recipients.get(comment.name, [])
+		comment.files = files.get(comment.name, [])
 		threads.setdefault(comment.thread or comment.name, []).append(comment)
 
 	items = []
@@ -225,6 +249,13 @@ def _render_thread(root_name, root, messages, user, unread):
 				f' · <a href="#" class="text-muted" data-private-delete="{message.name}">{escape_html(_("حذف"))}</a>'
 			)
 		parts.append(f'</div><div style="margin-top:4px;white-space:normal">{text}</div>')
+		if message.files:
+			links = "".join(
+				f'<a href="{escape_html(f.file_url)}" target="_blank" rel="noopener" class="btn btn-xs btn-default" '
+				f'style="margin:4px 4px 0 0">📎 {escape_html(f.file_name)}</a>'
+				for f in message.files
+			)
+			parts.append(f'<div style="margin-top:4px">{links}</div>')
 		if message.owner == user and message.recipients:
 			read = [
 				f'{escape_html(get_fullname(r.user))} ✓' if r.read_on else f'<span class="text-muted">{escape_html(get_fullname(r.user))}</span>'
@@ -274,6 +305,44 @@ def _valid_recipients(users, author):
 	return users
 
 
+def _valid_files(names):
+	"""Files the writer has just uploaded for this comment: their own, private, and not
+	attached to anything yet."""
+	names = [n for n in dict.fromkeys(names or []) if n]
+	if len(names) > MAX_FILES:
+		frappe.throw(_("أقصى عدد للمرفقات في التعليق الواحد {0}.").format(MAX_FILES))
+	files = []
+	for name in names:
+		file = frappe.db.get_value(
+			"File", name, ["name", "owner", "is_private", "is_folder", "attached_to_doctype"], as_dict=True
+		)
+		if (
+			not file
+			or file.is_folder
+			or file.owner != frappe.session.user
+			or not file.is_private
+			or file.attached_to_doctype
+		):
+			frappe.throw(_("المرفق غير متاح. ارفع الملف من جديد داخل التعليق الخاص."))
+		files.append(file.name)
+	return files
+
+
+def _attach_files(comment, files, users):
+	"""The files belong to the comment, and the other participants may open them."""
+	from frappe.share import add_docshare
+
+	for name in files:
+		frappe.db.set_value(
+			"File",
+			name,
+			{"attached_to_doctype": comment.doctype, "attached_to_name": comment.name},
+			update_modified=False,
+		)
+		for user in users:
+			add_docshare("File", name, user, read=1, notify=0, flags={"ignore_share_permission": True})
+
+
 def _share_with(doctype, name, users):
 	"""A recipient who cannot open the document gets read access to it."""
 	from frappe.share import add_docshare
@@ -289,6 +358,8 @@ def _notify(comment, users, is_reply):
 	if not users:
 		return
 	author = get_fullname(frappe.session.user)
+	count = frappe.db.count("File", {"attached_to_doctype": comment.doctype, "attached_to_name": comment.name})
+	attachments_note = f"<br><br>📎 {escape_html(_('مرفقات: {0}').format(count))}" if count else ""
 	for user in users:
 		others = [get_fullname(u) for u in [comment.owner] + [r.user for r in comment.recipients] if u not in (user, frappe.session.user)]
 		audience = _("لك") if not others else _("لك ولـ {0}").format("، ".join(others))
@@ -304,7 +375,7 @@ def _notify(comment, users, is_reply):
 				"document_type": comment.reference_doctype,
 				"document_name": comment.reference_name,
 				"subject": subject,
-				"email_content": escape_html(comment.content).replace("\n", "<br>"),
+				"email_content": escape_html(comment.content).replace("\n", "<br>") + attachments_note,
 				"from_user": frappe.session.user,
 			},
 		)

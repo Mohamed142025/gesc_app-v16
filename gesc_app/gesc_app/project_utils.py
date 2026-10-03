@@ -104,3 +104,12 @@ def get_project_sales_order_items(doctype, txt, searchfield, start, page_len, fi
 		""",
 		{"sales_order": sales_order, "txt": f"%{txt}%", "page_len": page_len, "start": start},
 	)
+
+
+def create_project_items(doc, method=None):
+	"""A project made from a contract gets its بنود (item and description) at once, as
+	soon as its Sales Order is set."""
+	if doc.sales_order and doc.has_value_changed("sales_order"):
+		from gesc_app.gesc_app.progress_utils import sync_project_items
+
+		sync_project_items(doc.name)

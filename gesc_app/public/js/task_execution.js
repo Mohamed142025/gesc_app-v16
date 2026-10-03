@@ -48,44 +48,46 @@
 			uom: 1,
 			qty: 1,
 			is_rejected: 1,
-			description: 2,
-			site_engineer_attachment: 1,
-			technical_office_attachment: 1,
-			attachment_type: 1,
+			description: 3,
+			site_engineer_files: 1,
+			technical_office_files: 1,
 		},
 		inspection: {
 			item_code: 2,
 			uom: 1,
 			qty: 1,
 			description: 3,
-			site_engineer_attachment: 2,
-			technical_office_attachment: 1,
+			site_engineer_files: 2,
+			technical_office_files: 1,
 		},
 		submittal: {
 			item_code: 2,
 			uom: 1,
 			qty: 1,
 			is_rejected: 1,
-			description: 2,
-			technical_office_attachment: 2,
-			attachment_type: 1,
+			description: 3,
+			technical_office_files: 2,
 		},
 	};
 
 	const SITE_ENGINEER_FIELDS = [
 		"item_code",
-		"site_engineer_attachment",
 		"site_engineer_notes",
 		"item_description",
 		"description",
 		"initial_qty",
 	];
-	const TECHNICAL_OFFICE_FIELDS = [
-		"qty",
-		"technical_office_attachment",
-		"attachment_type",
-		"technical_office_notes",
-	];
+	const TECHNICAL_OFFICE_FIELDS = ["qty", "technical_office_notes"];
+
+	// Each item has several files from each side, kept in one table on the task and tied
+	// to the item by its row_key; the item shows how many files each side has.
+	const ITEM_ATTACHMENTS = "custom_execution_item_attachments";
+	const SITE_ENGINEER_ROLE = "مهندس الموقع";
+	const TECHNICAL_OFFICE_ROLE = "المكتب الفني";
+	const ITEM_FILE_COUNTS = {
+		[SITE_ENGINEER_ROLE]: "site_engineer_files",
+		[TECHNICAL_OFFICE_ROLE]: "technical_office_files",
+	};
 
 	keep_replaced_attachments();
 
@@ -103,6 +105,10 @@
 			["custom_execution_items", ...FILE_TABLES].forEach((table) =>
 				frm.set_query("attachment_type", table, () => ({ filters: { disabled: 0 } }))
 			);
+		},
+
+		custom_execution_items_add(frm, cdt, cdn) {
+			locals[cdt][cdn].row_key = frappe.utils.get_random(12);
 		},
 
 		refresh(frm) {
@@ -261,9 +267,28 @@
 	function format_execution_grids(frm) {
 		const items = frm.get_field("custom_execution_items")?.grid;
 		if (items) {
-			set_grid_property(items, "site_engineer_attachment", "formatter", format_file);
-			set_grid_property(items, "technical_office_attachment", "formatter", format_file);
+			Object.entries(ITEM_FILE_COUNTS).forEach(([role, fieldname]) =>
+				set_grid_property(items, fieldname, "formatter", (value, df, options, row) =>
+					format_item_files(frm, role, value, row)
+				)
+			);
 			set_grid_property(items, "is_rejected", "formatter", format_rejected);
+			// Caught on the way down, so the click does not open the row as well.
+			const wrapper = items.wrapper?.get(0);
+			if (wrapper && !wrapper.__item_files_click) {
+				wrapper.addEventListener(
+					"click",
+					(event) => {
+						const button = event.target.closest(".gesc-item-files");
+						if (!button) return;
+						event.preventDefault();
+						event.stopPropagation();
+						open_item_files(frm, button.dataset.row, button.dataset.role);
+					},
+					true
+				);
+				wrapper.__item_files_click = true;
+			}
 		}
 		FILE_TABLES.forEach((table) => {
 			const grid = frm.get_field(table)?.grid;
@@ -303,6 +328,143 @@
 		)} ${__("عرض")}</a>`;
 	}
 
+	// The count of an item's files from one side, as a button that opens them.
+	function format_item_files(frm, role, value, row) {
+		const count = cint(value);
+		if (!row?.name || (!count && !can_edit_item_files(frm, role))) return "";
+		const label = count ? `${count}` : __("إضافة");
+		return `<button type="button" class="btn btn-xs btn-default gesc-item-files"
+			data-row="${frappe.utils.escape_html(row.name)}" data-role="${frappe.utils.escape_html(role)}"
+			title="${frappe.utils.escape_html(role)}">${frappe.utils.icon("es-line-attachment", "xs")} ${label}</button>`;
+	}
+
+	// An item's files from one side: listed with their type and notes, and changed by that
+	// side while the task is with it. Several files can be uploaded at once.
+	function open_item_files(frm, row_name, role) {
+		const row = locals["Task Execution Item"]?.[row_name];
+		if (!row) return;
+		const editable = can_edit_item_files(frm, role);
+		if (editable && frm.is_new()) {
+			frappe.msgprint(__("احفظ المهمة أولاً، ثم ارفع المرفقات."));
+			return;
+		}
+		if (!row.row_key) frappe.model.set_value(row.doctype, row.name, "row_key", frappe.utils.get_random(12));
+
+		const upload_to = { doctype: frm.doctype, docname: frm.docname };
+		const as_row = (file) => ({
+			name: frappe.utils.get_random(10),
+			attachment: file.attachment,
+			attachment_type: file.attachment_type,
+			notes: file.notes,
+		});
+		const current = (frm.doc[ITEM_ATTACHMENTS] || []).filter(
+			(file) => file.row_key === row.row_key && file.uploaded_by_role === role
+		);
+
+		const dialog = new frappe.ui.Dialog({
+			title: __("{0} – البند {1}: {2}", [role, row.idx, row.item_name || row.item_code || ""]),
+			size: "large",
+			fields: [
+				{
+					fieldtype: "HTML",
+					fieldname: "help",
+					options: `<p class="text-muted small">${
+						editable
+							? __("ارفع ملفاً أو أكثر مرة واحدة، وحدد نوع كل ملف وملاحظاته. الملف المحذوف من البند يبقى في سجل المستندات.")
+							: __("عرض فقط؛ المرفقات تُعدَّل من الجهة المسئولة والمهمة في المرحلة الخاصة بها.")
+					}</p>`,
+				},
+				{
+					fieldtype: "Button",
+					fieldname: "upload",
+					label: __("رفع ملفات"),
+					hidden: editable ? 0 : 1,
+					click: () =>
+						new frappe.ui.FileUploader({
+							...upload_to,
+							allow_multiple: true,
+							on_success: (file) => {
+								const table = dialog.fields_dict.files;
+								table.df.data.push(as_row({ attachment: file.file_url }));
+								table.grid.refresh();
+							},
+						}),
+				},
+				{
+					fieldtype: "Table",
+					fieldname: "files",
+					label: __("الملفات"),
+					cannot_add_rows: editable ? 0 : 1,
+					cannot_delete_rows: editable ? 0 : 1,
+					in_place_edit: true,
+					data: current.map(as_row),
+					fields: [
+						{
+							fieldtype: "Attach",
+							fieldname: "attachment",
+							label: __("الملف"),
+							in_list_view: 1,
+							columns: 3,
+							reqd: 1,
+							read_only: editable ? 0 : 1,
+							options: upload_to,
+							formatter: format_file,
+						},
+						{
+							fieldtype: "Link",
+							fieldname: "attachment_type",
+							label: __("نوع المرفق"),
+							options: "Attachment Type",
+							in_list_view: 1,
+							columns: 3,
+							read_only: editable ? 0 : 1,
+							get_query: () => ({ filters: { disabled: 0 } }),
+						},
+						{
+							fieldtype: "Data",
+							fieldname: "notes",
+							label: __("ملاحظات"),
+							in_list_view: 1,
+							columns: 4,
+							read_only: editable ? 0 : 1,
+						},
+					],
+				},
+			],
+			primary_action_label: editable ? __("حفظ المرفقات") : __("إغلاق"),
+			primary_action: () => {
+				dialog.hide();
+				if (editable) save_item_files(frm, row, role, dialog.fields_dict.files.df.data);
+			},
+		});
+		dialog.show();
+	}
+
+	// The side's files on the item are replaced by the dialog's, and the task is saved.
+	function save_item_files(frm, row, role, files) {
+		(frm.doc[ITEM_ATTACHMENTS] || [])
+			.filter((file) => file.row_key === row.row_key && file.uploaded_by_role === role)
+			.forEach((file) => frappe.model.clear_doc(file.doctype, file.name));
+		files
+			.filter((file) => file.attachment)
+			.forEach((file) =>
+				frm.add_child(ITEM_ATTACHMENTS, {
+					row_key: row.row_key,
+					row_no: row.idx,
+					item_code: row.item_code,
+					uploaded_by_role: role,
+					attachment: file.attachment,
+					attachment_type: file.attachment_type,
+					notes: file.notes,
+				})
+			);
+		const count = (frm.doc[ITEM_ATTACHMENTS] || []).filter(
+			(file) => file.row_key === row.row_key && file.uploaded_by_role === role
+		).length;
+		frappe.model.set_value(row.doctype, row.name, ITEM_FILE_COUNTS[role], count);
+		frm.save();
+	}
+
 	function format_rejected(value) {
 		return cint(value) ? `<span class="text-danger bold">${__("مرفوض")}</span>` : "";
 	}
@@ -331,10 +493,8 @@
 		});
 	}
 
-	function lock_execution_items(frm) {
-		const grid = frm.get_field("custom_execution_items")?.grid;
-		if (!grid) return;
-
+	// When each side can change its part of the items, as the server allows it.
+	function item_edit_access(frm) {
 		const state = frm.doc.workflow_state || STATE_OPEN;
 		const is_submittal = !!frm.doc.custom_is_material_submittal;
 		const is_open = is_submittal ? SUBMITTAL_PREPARING_STATES.includes(state) : state === STATE_OPEN;
@@ -344,6 +504,23 @@
 			: frm.doc.custom_is_pre_quotation_inspection
 			? state === STATE_INSPECTED
 			: TECHNICAL_OFFICE_STATES.includes(state);
+		return { is_submittal, is_open, with_technical_office };
+	}
+
+	// Each side changes its own files: the Technical Office's are on field level 1, like
+	// its other columns.
+	function can_edit_item_files(frm, role) {
+		const access = item_edit_access(frm);
+		return role === SITE_ENGINEER_ROLE
+			? access.is_open
+			: access.with_technical_office && !!frm.perm?.[1]?.write;
+	}
+
+	function lock_execution_items(frm) {
+		const grid = frm.get_field("custom_execution_items")?.grid;
+		if (!grid) return;
+
+		const { is_submittal, is_open, with_technical_office } = item_edit_access(frm);
 
 		set_grid_property(grid, "manufacturer", "read_only", is_open ? 0 : 1);
 		set_grid_property(grid, "site_engineer_section", "label", is_submittal ? __("بيانات المادة") : __("مهندس الموقع"));
@@ -778,15 +955,14 @@
 
 		const clear_attachment = proto.clear_attachment;
 		proto.clear_attachment = function () {
-			const parent = this.df?.parent;
-			if (!["Task Execution Item", "Task Submittal Attachment"].includes(parent) || !this.frm) {
+			// The items' own files are changed in their dialog (open_item_files).
+			if (this.df?.parent !== "Task Submittal Attachment" || !this.frm) {
 				return clear_attachment.call(this);
 			}
 			frappe.confirm(__("إزالة المرفق من البند؟ سيبقى الملف محفوظاً في سجل المستندات."), async () => {
+				// A submittal file row cannot be saved without its file; the next one is uploaded first.
 				await this.parse_validate_and_set_in_model(null);
 				this.refresh();
-				// A submittal file row cannot be saved without its file; the next one is uploaded first.
-				if (parent === "Task Execution Item") this.frm.save();
 			});
 		};
 		proto.__keeps_execution_history = true;

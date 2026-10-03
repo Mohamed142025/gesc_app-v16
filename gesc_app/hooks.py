@@ -29,7 +29,7 @@ app_license = "mit"
 app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
 	"/assets/gesc_app/js/item_description.js?v=1",
-	"/assets/gesc_app/js/private_comments.js?v=1",
+	"/assets/gesc_app/js/private_comments.js?v=2",
 ]
 
 # include js, css files in header of web template
@@ -211,6 +211,7 @@ doc_events = {
 		"on_update": [
 			"gesc_app.gesc_app.project_utils.generate_tasks_from_template",
 			"gesc_app.gesc_app.project_controls.log_project_exception",
+			"gesc_app.gesc_app.project_utils.create_project_items",
 		],
 	},
 	"Sales Order": {

@@ -10,6 +10,8 @@
   "column_break_head",
   "item",
   "item_name",
+  "item_description",
+  "item_description_text",
   "uom",
   "section_break_contract",
   "quantity",
@@ -61,6 +63,21 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "اسم البند",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_description",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "كود توصيف البند",
+   "options": "Item Description"
+  },
+  {
+   "fetch_from": "item_description.description",
+   "fieldname": "item_description_text",
+   "fieldtype": "Small Text",
+   "label": "التوصيف",
    "read_only": 1
   },
   {
@@ -135,7 +152,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-11 00:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Gesc App",
  "name": "Project Item",

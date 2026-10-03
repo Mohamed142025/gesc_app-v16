@@ -16,6 +16,8 @@ from frappe import _
 from frappe.utils import add_days, cint, date_diff, flt, get_link_to_form, getdate, now_datetime, nowdate
 
 from gesc_app.gesc_app.task_execution import (
+	ITEM_ATTACHMENT_FIELDS,
+	ITEM_ATTACHMENTS,
 	SITE_ENGINEER,
 	STATE_APPROVED,
 	STATE_IN_PROGRESS,
@@ -25,6 +27,7 @@ from gesc_app.gesc_app.task_execution import (
 	_get_company,
 	create_material_request,
 	get_project_warehouse,
+	users_with_role,
 )
 
 DOCUMENT_CONTROLLER = "Document Controller"
@@ -82,10 +85,7 @@ ITEM_FIELDS = (
 	"description",
 	"manufacturer",
 	"qty",
-	"technical_office_attachment",
-	"attachment_type",
 	"technical_office_notes",
-	"site_engineer_attachment",
 	"site_engineer_notes",
 )
 FILE_FIELDS = ("attachment", "attachment_type", "notes")
@@ -250,7 +250,11 @@ def _keep_system_fields(doc, before):
 
 
 def _validate_table_changes(doc, before, old_state):
-	tables = {"custom_execution_items": ITEM_FIELDS, **{t: FILE_FIELDS for t in (TASK_ATTACHMENTS, *_file_tables())}}
+	tables = {
+		"custom_execution_items": ITEM_FIELDS,
+		ITEM_ATTACHMENTS: ITEM_ATTACHMENT_FIELDS,
+		**{t: FILE_FIELDS for t in (TASK_ATTACHMENTS, *_file_tables())},
+	}
 	for table, fieldnames in tables.items():
 		if _rows_changed(doc, before, table, fieldnames) and old_state not in PREPARING_STATES:
 			frappe.throw(
@@ -332,7 +336,7 @@ def _submit(doc):
 		if not rows:
 			frappe.throw(_("أضف مادة واحدة على الأقل قبل الإرسال للاستشاري."))
 		# Files for the whole task stand in for the files of each item.
-		missing = [str(row.idx) for row in rows if not row.technical_office_attachment]
+		missing = [str(row.idx) for row in rows if not cint(row.technical_office_files)]
 		if missing and not doc.get(TASK_ATTACHMENTS):
 			frappe.throw(
 				_(
@@ -465,27 +469,11 @@ def _users_to_inform():
 	settings = get_settings()
 	seen, users = set(), []
 	for role in (settings.execution_role, settings.operations_role):
-		for user in _users_with_role(role):
+		for user in users_with_role(role):
 			if user not in seen:
 				seen.add(user)
 				users.append((user, role))
 	return users
-
-
-def _users_with_role(role):
-	if not role:
-		return []
-	users = frappe.get_all("Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent")
-	return frappe.get_all(
-		"User",
-		filters=[
-			["name", "in", users or ["-"]],
-			["name", "not in", ["Administrator", "Guest"]],
-			["enabled", "=", 1],
-			["user_type", "=", "System User"],
-		],
-		pluck="name",
-	)
 
 
 def _comments_html(revision):
@@ -511,7 +499,7 @@ def _assign_rework_decision(doc):
 	description = _("رفض تام لـ {0} (Rev {1:02d}): مطلوب قرار الإدارة.<br>{2}").format(
 		frappe.bold(doc.custom_submittal_no), cint(revision.revision), _comments_html(revision)
 	)
-	for user in _users_with_role(PROJECTS_MANAGER):
+	for user in users_with_role(PROJECTS_MANAGER):
 		_create_todo(doc, user, description)
 
 

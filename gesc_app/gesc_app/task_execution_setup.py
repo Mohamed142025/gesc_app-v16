@@ -74,6 +74,8 @@ INSPECTION = "doc.custom_is_pre_quotation_inspection"
 SUBMITTAL = "doc.custom_is_material_submittal or doc.custom_is_drawing_submittal or doc.custom_is_calculation_submittal"
 # The submittal condition before drawing and calculation submittals shared the workflow.
 MATERIAL_ONLY_SUBMITTAL = "doc.custom_is_material_submittal"
+# The project is required on every kind but the pre-quotation inspection (task_execution).
+PROJECT_REQUIRED = f"eval:doc.custom_has_work_items || {SUBMITTAL_JS}"
 
 ROLE_TRANSLATIONS = {
 	SITE_ENGINEER: "مهندس الموقع",
@@ -189,6 +191,8 @@ def setup_task_execution():
 	setup_task_types()
 	setup_submittal_settings()
 	setup_attachment_types()
+	setup_project_requirement()
+	setup_attachment_limit()
 	frappe.clear_cache(doctype="Task")
 
 
@@ -376,6 +380,17 @@ def setup_custom_fields():
 					"no_copy": 1,
 					"module": MODULE,
 				},
+				# The files of each item, several from each side; managed from the items grid.
+				{
+					"fieldname": "custom_execution_item_attachments",
+					"label": "مرفقات بنود التنفيذ",
+					"fieldtype": "Table",
+					"options": "Task Execution Item Attachment",
+					"insert_after": "custom_execution_items",
+					"hidden": 1,
+					"no_copy": 1,
+					"module": MODULE,
+				},
 				# Drawing and calculation submittals send files instead of items; the
 				# Technical Office writes them (field level 1).
 				{
@@ -536,6 +551,22 @@ def setup_custom_fields():
 					"fieldtype": "Int",
 					"default": "14",
 					"insert_after": "custom_submittal_operations_role",
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_execution_section",
+					"label": "تنفيذ بنود المهام",
+					"fieldtype": "Section Break",
+					"insert_after": "custom_submittal_response_days",
+					"module": MODULE,
+				},
+				{
+					"fieldname": "custom_execution_send_notify_role",
+					"label": "الدور الذي يُبلَّغ عند الإرسال للمكتب الفني",
+					"fieldtype": "Link",
+					"options": "Role",
+					"insert_after": "custom_execution_section",
+					"description": "عند إرسال مهمة «أعمال تنفيذ بنود» للمكتب الفني يصل إشعار تلقائي لكل مستخدم له هذا الدور. اتركه فارغاً لإيقاف الإشعار.",
 					"module": MODULE,
 				},
 			],
@@ -764,6 +795,31 @@ def setup_task_types():
 	):
 		if not frappe.db.exists("Task Type", name):
 			frappe.get_doc({"doctype": "Task Type", flag: 1}).insert(ignore_permissions=True, set_name=name)
+
+
+def setup_project_requirement():
+	"""Mark the task's project as required in the form once its type needs one."""
+	current = frappe.db.get_value(
+		"Property Setter",
+		{"doc_type": "Task", "field_name": "project", "property": "mandatory_depends_on"},
+		"value",
+	)
+	if current != PROJECT_REQUIRED:
+		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+		make_property_setter("Task", "project", "mandatory_depends_on", PROJECT_REQUIRED, "Code")
+
+
+def setup_attachment_limit():
+	"""Each item takes several files from each side, past ERPNext's five files a task; no
+	limit (0) instead."""
+	current = frappe.db.get_value(
+		"Property Setter", {"doc_type": "Task", "doctype_or_field": "DocType", "property": "max_attachments"}, "value"
+	)
+	if current != "0":
+		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+		make_property_setter("Task", None, "max_attachments", 0, "Int", for_doctype=True)
 
 
 def setup_attachment_types():

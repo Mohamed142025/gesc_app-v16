@@ -1,10 +1,13 @@
 import frappe
 from frappe import _
 
-from gesc_app.gesc_app.progress_utils import refresh_project_items_for_sales_order
+from gesc_app.gesc_app.progress_utils import refresh_project_items_for_sales_order, sync_project_items
 
 
 def refresh_linked_project_items(doc, method=None):
+	# An addendum submitted on a running project adds its new بنود.
+	if doc.docstatus == 1 and doc.project:
+		sync_project_items(doc.project)
 	item_codes = {row.item_code for row in doc.items}
 	if item_codes:
 		refresh_project_items_for_sales_order(doc.project, list(item_codes))

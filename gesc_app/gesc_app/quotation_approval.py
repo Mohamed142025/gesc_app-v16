@@ -5,14 +5,15 @@ The approval holds a fingerprint of the commercial content (party, items, prices
 discounts, taxes, totals, down payment, payment terms, terms and validity); changing any
 of it drops the approval. Printing, PDF and email of an unapproved draft can be blocked
 for everyone but the approvers. The creator (and whoever asked for approval) is notified
-of the decision; a rejection also comes as a ToDo with the reason.
+of the decision; a rejection also comes as a ToDo with the reason. A request for approval
+also notifies the role chosen for it in Selling Settings.
 """
 
 import hashlib
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_fullname, now_datetime
+from frappe.utils import escape_html, flt, get_fullname, now_datetime
 
 STATUS_DRAFT = "مسودة"
 STATUS_PENDING = "بانتظار الاعتماد"
@@ -40,6 +41,7 @@ def get_settings():
 	return frappe._dict(
 		enabled=bool(get("custom_quotation_approval_enabled")),
 		approver_role=get("custom_quotation_approver_role"),
+		request_notify_role=get("custom_quotation_request_notify_role"),
 		block_print=bool(get("custom_quotation_block_unapproved_print")),
 	)
 
@@ -174,8 +176,10 @@ def request_approval(quotation):
 	description = _("مطلوب اعتماد عرض السعر {0} للعميل {1} بإجمالي {2}.").format(
 		frappe.bold(doc.name), doc.customer_name or doc.party_name, frappe.format(doc.grand_total, {"fieldtype": "Currency", "options": doc.currency})
 	)
-	for user in _users_with_role(settings.approver_role):
+	approvers = _users_with_role(settings.approver_role)
+	for user in approvers:
 		_create_todo(doc, user, description, TODO_REQUEST)
+	_notify_request(doc, settings, skip=approvers)
 	doc.add_comment("Info", _("طُلب اعتماد عرض السعر"))
 	return doc
 
@@ -318,6 +322,48 @@ def _notify(doc, message):
 				"from_user": frappe.session.user,
 			},
 		)
+
+
+def _notify_request(doc, settings, skip):
+	"""The role chosen in Selling Settings hears of the request; the approvers already have
+	it as a ToDo, and the requester knows."""
+	from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
+
+	users = [
+		u for u in _users_with_role(settings.request_notify_role) if u not in skip and u != frappe.session.user
+	]
+	if not users:
+		return
+	# Like the approvers' ToDo: whoever is told can open the quotation.
+	from frappe.share import add_docshare
+
+	for user in users:
+		if not frappe.has_permission(doc.doctype, "read", doc=doc, user=user):
+			add_docshare(doc.doctype, doc.name, user, read=1, flags={"ignore_share_permission": True})
+
+	total = frappe.format(doc.grand_total, {"fieldtype": "Currency", "options": doc.currency})
+	subject = _("📝 {0} طلب اعتماد عرض السعر {1} للعميل {2} بإجمالي {3}.").format(
+		escape_html(get_fullname(frappe.session.user)),
+		doc.name,
+		escape_html(doc.customer_name or doc.party_name or ""),
+		total,
+	)
+	items = "".join(
+		f"<li>{escape_html(row.item_name or row.item_code)} — {frappe.format(row.qty, 'Float')} × "
+		f"{frappe.format(row.rate, {'fieldtype': 'Currency', 'options': doc.currency})}</li>"
+		for row in doc.items
+	)
+	enqueue_create_notification(
+		users,
+		{
+			"type": "Alert",
+			"document_type": doc.doctype,
+			"document_name": doc.name,
+			"subject": subject,
+			"email_content": _("البنود ({0}):").format(len(doc.items)) + f"<ul>{items}</ul>",
+			"from_user": frappe.session.user,
+		},
+	)
 
 
 def _users_with_role(role):

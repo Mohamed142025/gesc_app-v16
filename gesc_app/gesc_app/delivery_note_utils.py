@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 
 from gesc_app.gesc_app.progress_utils import (
 	calculate_component_percent,
@@ -10,14 +11,57 @@ from gesc_app.gesc_app.progress_utils import (
 )
 
 
-def get_project_item_for_row(project, item_code):
-	"""البند is resolved automatically from the item already on the row plus
-	the document's own project - no separate selection field needed."""
+def get_project_item_for_row(project, item_code, item_description=None):
+	"""البند is resolved automatically from the item and its description already
+	on the row plus the document's own project - no separate selection field needed."""
 
 	if not project or not item_code:
 		return None
 
-	return frappe.db.get_value("Project Item", {"project": project, "item": item_code})
+	return frappe.db.get_value(
+		"Project Item",
+		{"project": project, "item": item_code, "item_description": item_description or ("is", "not set")},
+	)
+
+
+def resolve_project_item(project, row, strict=True):
+	"""The row's البند. A row without a description takes the item's only
+	description in the project; with several, or a description the project
+	has no البند for, the row cannot be counted (`strict` says so)."""
+
+	if not project or not row.item_code:
+		return None
+
+	candidates = frappe.get_all(
+		"Project Item",
+		filters={"project": project, "item": row.item_code},
+		fields=["name", "item_description"],
+	)
+	if not candidates:
+		# Not a contracted item of this project: nothing to follow.
+		return None
+
+	description = row.get("custom_item_description")
+	if not description and len(candidates) == 1:
+		row.custom_item_description = candidates[0].item_description
+		return candidates[0].name
+
+	match = next((c.name for c in candidates if (c.item_description or None) == (description or None)), None)
+	if match or not strict:
+		return match
+
+	choices = "، ".join(c.item_description or _("بدون توصيف") for c in candidates)
+	if description:
+		frappe.throw(
+			_("السطر {0}: توصيف البند {1} غير موجود في بنود المشروع للصنف {2}. التوصيفات المتاحة: {3}").format(
+				row.idx, frappe.bold(description), frappe.bold(row.item_code), choices
+			)
+		)
+	frappe.throw(
+		_("السطر {0}: للصنف {1} أكثر من بند في المشروع؛ اختر كود توصيف البند ({2}).").format(
+			row.idx, frappe.bold(row.item_code), choices
+		)
+	)
 
 
 def calculate_line_values(doc, method=None):
@@ -27,7 +71,7 @@ def calculate_line_values(doc, method=None):
 	percentages and its previous/current completion breakdown per line."""
 
 	for row in doc.items:
-		project_item_name = get_project_item_for_row(doc.project, row.item_code)
+		project_item_name = resolve_project_item(doc.project, row)
 		if not project_item_name:
 			row.custom_supply_percent = 0
 			row.custom_install_percent = 0
@@ -80,7 +124,7 @@ def sync_project_item_progress_on_cancel(doc, method=None):
 def _sync_affected_project_items(doc):
 	project_items = set()
 	for row in doc.items:
-		project_item_name = get_project_item_for_row(doc.project, row.item_code)
+		project_item_name = get_project_item_for_row(doc.project, row.item_code, row.get("custom_item_description"))
 		if project_item_name:
 			project_items.add(project_item_name)
 
@@ -89,12 +133,17 @@ def _sync_affected_project_items(doc):
 
 
 @frappe.whitelist()
-def preview_project_item_completion(project, item_code, supply_qty, install_qty, delivery_note=None):
+def preview_project_item_completion(
+	project, item_code, supply_qty, install_qty, delivery_note=None, item_description=None
+):
 	"""Live preview as the user types quantities on a draft Work Completion
-	Note line. البند is resolved from item_code + project; refreshed from the
-	live contract first so the preview is never based on a stale record."""
+	Note line. البند is resolved from item_code + item description + project;
+	refreshed from the live contract first so the preview is never based on a
+	stale record. The description is given back when the row had none and the
+	item has only one in the project."""
 
-	project_item_name = get_project_item_for_row(project, item_code)
+	row = frappe._dict(item_code=item_code, custom_item_description=item_description or None, idx=0)
+	project_item_name = resolve_project_item(project, row, strict=False)
 	if not project_item_name:
 		return {
 			"qty": 0,
@@ -129,6 +178,7 @@ def preview_project_item_completion(project, item_code, supply_qty, install_qty,
 	qty = calculate_line_qty(supply_qty, install_qty, pi.supply_weight_percent, pi.installation_weight_percent)
 
 	return {
+		"item_description": row.custom_item_description,
 		"qty": qty,
 		"supply_percent": pi.supply_weight_percent,
 		"install_percent": pi.installation_weight_percent,

@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "creation": "2026-10-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "row_key",
+  "row_no",
+  "item_code",
+  "uploaded_by_role",
+  "column_break_file",
+  "attachment",
+  "attachment_type",
+  "notes"
+ ],
+ "fields": [
+  {
+   "description": "يربط الملف بالبند في جدول بنود التنفيذ.",
+   "fieldname": "row_key",
+   "fieldtype": "Data",
+   "label": "مفتاح البند",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "row_no",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "البند",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "كود الصنف",
+   "options": "Item",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "uploaded_by_role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "مرفق من",
+   "options": "مهندس الموقع\nالمكتب الفني",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_file",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "الملف",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "attachment_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "نوع المرفق",
+   "options": "Attachment Type"
+  },
+  {
+   "columns": 2,
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "ملاحظات"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Task Execution Item Attachment",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

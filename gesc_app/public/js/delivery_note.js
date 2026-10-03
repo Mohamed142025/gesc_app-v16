@@ -2,6 +2,10 @@ frappe.ui.form.on("Delivery Note Item", {
 	item_code(frm, cdt, cdn) {
 		update_completion_preview(frm, cdt, cdn);
 	},
+	// The البند is the item with its description.
+	custom_item_description(frm, cdt, cdn) {
+		update_completion_preview(frm, cdt, cdn);
+	},
 	custom_supply_qty(frm, cdt, cdn) {
 		update_completion_preview(frm, cdt, cdn);
 	},
@@ -58,9 +62,15 @@ function update_completion_preview(frm, cdt, cdn) {
 			supply_qty: row.custom_supply_qty || 0,
 			install_qty: row.custom_install_qty || 0,
 			delivery_note: frm.doc.name,
+			item_description: row.custom_item_description || "",
 		},
 		callback(r) {
 			const data = r.message || {};
+			// The item's only description in the project fills an empty row.
+			if (data.item_description && !row.custom_item_description) {
+				frappe.model.set_value(cdt, cdn, "custom_item_description", data.item_description);
+				return;
+			}
 			Object.entries(PREVIEW_FIELD_MAP).forEach(([fieldname, key]) => {
 				frappe.model.set_value(cdt, cdn, fieldname, data[key] || 0);
 			});

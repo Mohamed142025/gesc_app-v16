@@ -55,6 +55,16 @@ def setup_quotation_approval():
 					"description": "الدور المعتمِد يقدر يعاين دائماً.",
 					"module": MODULE,
 				},
+				{
+					"fieldname": "custom_quotation_request_notify_role",
+					"label": "الدور الذي يُبلَّغ عند طلب الاعتماد",
+					"fieldtype": "Link",
+					"options": "Role",
+					"insert_after": "custom_quotation_block_unapproved_print",
+					"depends_on": ENABLED,
+					"description": "عند الضغط على «طلب اعتماد» يصل إشعار تلقائي لكل مستخدم له هذا الدور (الدور المعتمِد يصله ToDo بالفعل). اتركه فارغاً لإيقاف الإشعار.",
+					"module": MODULE,
+				},
 			],
 			"Quotation": [
 				{

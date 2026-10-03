@@ -1,21 +1,32 @@
 import frappe
 from frappe.utils import flt
 
+# A البند is an item with its description (Item Description): the same item can be sold
+# under several descriptions in one contract, each followed on its own.
 
-def get_contract_values(project, item_code):
+
+def get_contract_values(project, item_code, item_description=None):
 	"""Read quantity and the manually-set supply/install percentages for this
-	item from the project's submitted Sales Order(s) - the percentages are
-	entered by hand on the Sales Order Item, never auto-calculated."""
+	item and description from the project's submitted Sales Order(s) - the
+	percentages are entered by hand on the Sales Order Item, never auto-calculated."""
 
 	rows = frappe.db.sql(
 		"""
 		select soi.qty, soi.custom_supply_percent, soi.custom_install_percent
 		from `tabSales Order Item` soi
 		inner join `tabSales Order` so on so.name = soi.parent
-		where so.project = %(project)s and soi.item_code = %(item_code)s and so.docstatus = 1
-		order by so.creation asc
+		where (so.project = %(project)s or so.name = %(sales_order)s)
+			and soi.item_code = %(item_code)s and so.docstatus = 1
+			and ifnull(soi.custom_item_description, '') = %(item_description)s
+		order by so.creation asc, soi.idx asc
 		""",
-		{"project": project, "item_code": item_code},
+		{
+			"project": project,
+			# A Sales Order set on the project by hand is not linked back to it.
+			"sales_order": frappe.db.get_value("Project", project, "sales_order") or "",
+			"item_code": item_code,
+			"item_description": item_description or "",
+		},
 		as_dict=True,
 	)
 
@@ -30,11 +41,11 @@ def get_contract_values(project, item_code):
 
 
 def refresh_project_item_contract_values(project_item_name):
-	pi = frappe.db.get_value("Project Item", project_item_name, ["project", "item"], as_dict=True)
+	pi = frappe.db.get_value("Project Item", project_item_name, ["project", "item", "item_description"], as_dict=True)
 	if not pi:
 		return
 
-	quantity, supply_weight, install_weight = get_contract_values(pi.project, pi.item)
+	quantity, supply_weight, install_weight = get_contract_values(pi.project, pi.item, pi.item_description)
 	frappe.db.set_value(
 		"Project Item",
 		project_item_name,
@@ -60,23 +71,63 @@ def refresh_project_items_for_sales_order(sales_order_project, item_codes):
 		refresh_project_item_contract_values(project_item_name)
 
 
+def sync_project_items(project):
+	"""Create a البند for each item and description sold on the project's submitted
+	contracts (its Sales Order and addenda) that has none yet; quantity and weights are
+	read from the contracts when it is saved. Returns the البنود created."""
+
+	if not project:
+		return []
+
+	sales_order = frappe.db.get_value("Project", project, "sales_order")
+	rows = frappe.db.sql(
+		"""
+		select soi.item_code, ifnull(soi.custom_item_description, '') as item_description
+		from `tabSales Order Item` soi
+		inner join `tabSales Order` so on so.name = soi.parent
+		where so.docstatus = 1 and (so.project = %(project)s or so.name = %(sales_order)s)
+		order by so.creation asc, soi.idx asc
+		""",
+		{"project": project, "sales_order": sales_order or ""},
+		as_dict=True,
+	)
+
+	created = []
+	for row in rows:
+		key = {"project": project, "item": row.item_code, "item_description": row.item_description or ("is", "not set")}
+		if frappe.db.exists("Project Item", key):
+			continue
+		doc = frappe.get_doc(
+			{
+				"doctype": "Project Item",
+				"project": project,
+				"item": row.item_code,
+				"item_description": row.item_description or None,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		created.append(doc.name)
+	return created
+
+
 def get_delivered_totals(project_item_name, exclude_delivery_note=None):
 	"""Sum supplied/installed quantities from submitted Work Completion Notes
 	(Delivery Note) for this البند. البند isn't picked on the row directly -
-	it's resolved the same way the Delivery Note does: by (project, item).
-	`exclude_delivery_note` lets a draft preview its own resulting percentage
-	without double-counting itself."""
+	it's resolved the same way the Delivery Note does: by (project, item,
+	item description). `exclude_delivery_note` lets a draft preview its own
+	resulting percentage without double-counting itself."""
 
-	pi = frappe.db.get_value("Project Item", project_item_name, ["project", "item"], as_dict=True)
+	pi = frappe.db.get_value("Project Item", project_item_name, ["project", "item", "item_description"], as_dict=True)
 	if not pi:
 		return 0.0, 0.0
 
 	conditions = [
 		"dn.project = %(project)s",
 		"dni.item_code = %(item_code)s",
+		"ifnull(dni.custom_item_description, '') = %(item_description)s",
 		"dn.docstatus = 1",
 	]
-	values = {"project": pi.project, "item_code": pi.item}
+	values = {"project": pi.project, "item_code": pi.item, "item_description": pi.item_description or ""}
 
 	if exclude_delivery_note:
 		conditions.append("dn.name != %(exclude)s")

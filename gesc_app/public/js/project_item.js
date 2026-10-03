@@ -7,6 +7,11 @@ frappe.ui.form.on("Project Item", {
 			};
 		});
 
+		// A البند's description is one of its item's descriptions.
+		frm.set_query("item_description", function () {
+			return { filters: { item_code: frm.doc.item || "__no_item_selected__" } };
+		});
+
 		frm.set_query("building", function () {
 			return {
 				filters: { project: frm.doc.project },
@@ -21,6 +26,10 @@ frappe.ui.form.on("Project Item", {
 	project(frm) {
 		frm.set_value("item", "");
 		warn_if_no_sales_order(frm);
+	},
+
+	item(frm) {
+		frm.set_value("item_description", "");
 	},
 });
 

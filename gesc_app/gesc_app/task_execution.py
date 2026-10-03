@@ -16,7 +16,7 @@ and are handled in material_submittal.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_link_to_form, getdate, now_datetime, nowdate
+from frappe.utils import cint, escape_html, flt, get_fullname, get_link_to_form, getdate, now_datetime, nowdate
 
 SITE_ENGINEER = "Site Engineer"
 TECHNICAL_OFFICE = "Technical Office"
@@ -52,6 +52,8 @@ SUBMITTAL_FLAGS = (
 	"custom_is_calculation_submittal",
 )
 KIND_FLAGS = ("custom_has_work_items", "custom_is_pre_quotation_inspection", *SUBMITTAL_FLAGS)
+# Every kind but the pre-quotation inspection, which comes before there is a project.
+PROJECT_FLAGS = ("custom_has_work_items", *SUBMITTAL_FLAGS)
 
 # States in which the Technical Office works on the items, and those waiting for the
 # Site Engineer's decision.
@@ -68,19 +70,25 @@ DECISION_STATES = (STATE_EXECUTED, STATE_NOTES_DONE)
 
 SITE_ENGINEER_FIELDS = (
 	"item_code",
-	"site_engineer_attachment",
 	"site_engineer_notes",
 	"item_description",
 	"description",
 	"initial_qty",
 )
-TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_attachment", "attachment_type", "technical_office_notes")
+TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_notes")
 REVIEW_FIELDS = ("is_rejected", "site_engineer_approval_notes")
 
-ATTACHMENT_ROLES = {
-	"site_engineer_attachment": "مهندس الموقع",
-	"technical_office_attachment": "المكتب الفني",
+SITE_ENGINEER_ROLE = "مهندس الموقع"
+TECHNICAL_OFFICE_ROLE = "المكتب الفني"
+
+# Each item can have several files from each side. They are rows of one table on the task,
+# tied to their item by its row_key; each item shows how many files each side has.
+ITEM_ATTACHMENTS = "custom_execution_item_attachments"
+ITEM_FILE_COUNTS = {
+	SITE_ENGINEER_ROLE: "site_engineer_files",
+	TECHNICAL_OFFICE_ROLE: "technical_office_files",
 }
+ITEM_ATTACHMENT_FIELDS = ("row_key", "uploaded_by_role", "attachment", "attachment_type", "notes")
 
 # Task-level tables of Technical Office files, and how the document history names them.
 ATTACHMENT_TABLES = {
@@ -92,6 +100,7 @@ ATTACHMENT_TABLES = {
 # The site photos go to the Quotation's attachments table; the Technical Office's file
 # goes on the Quotation item itself.
 SITE_PHOTOS_TYPE = "صور الموقع"
+OTHER_ATTACHMENT_TYPE = "أخرى"
 
 
 def validate_task(doc, method=None):
@@ -106,6 +115,16 @@ def validate_task(doc, method=None):
 			frappe.throw(_("لا يمكن تغيير نوع المهمة بعد إرسالها للمكتب الفني."))
 		for flag in KIND_FLAGS:
 			doc.set(flag, before.get(flag))
+
+	sync_item_attachments(doc)
+	if item_files_changed(doc, before, TECHNICAL_OFFICE_ROLE) and 1 not in doc.get_permlevel_access("write"):
+		frappe.throw(_("مرفقات المكتب الفني على البنود يرفعها ويعدّلها المكتب الفني فقط."))
+
+	if not doc.project and any(doc.get(flag) for flag in PROJECT_FLAGS):
+		frappe.throw(
+			_("المشروع إلزامي في مهام بنود الأعمال واعتماد المواد والرسومات التفصيلية والحسابات الإنشائية."),
+			title=_("المشروع مطلوب"),
+		)
 
 	if not _in_workflow(doc) and not (before and _in_workflow(before)):
 		return
@@ -149,6 +168,9 @@ def on_task_update(doc, method=None):
 
 	if not doc.get("custom_has_work_items"):
 		return
+	if doc.flags.notify_sent_to_office:
+		doc.flags.notify_sent_to_office = None
+		_notify_sent_to_office(doc)
 	if doc.get("workflow_state") != STATE_APPROVED or doc.custom_material_request:
 		return
 
@@ -162,6 +184,60 @@ def on_task_update(doc, method=None):
 		_("تم إنشاء طلب المواد {0}").format(get_link_to_form("Material Request", material_request)),
 		alert=True,
 		indicator="green",
+	)
+
+
+def _notify_sent_to_office(doc):
+	"""Everyone with the role chosen in Projects Settings hears that the task is waiting for
+	the Technical Office."""
+	from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
+
+	role = frappe.db.get_single_value("Projects Settings", "custom_execution_send_notify_role")
+	users = [user for user in users_with_role(role) if user != frappe.session.user]
+	if not users:
+		return
+
+	project = doc.project and (frappe.db.get_value("Project", doc.project, "project_name") or doc.project)
+	subject = _("📋 {0} أرسل مهمة بنود الأعمال {1} «{2}» للمكتب الفني{3}.").format(
+		escape_html(get_fullname(frappe.session.user)),
+		doc.name,
+		escape_html(doc.subject or ""),
+		_(" — المشروع {0}").format(escape_html(project)) if project else "",
+	)
+	items = []
+	for row in doc.custom_execution_items:
+		qty = flt(row.qty) or flt(row.initial_qty)
+		line = row.item_name or row.item_code
+		if qty:
+			line = f"{line} — {frappe.format(qty, 'Float')} {row.uom or ''}".strip()
+		items.append(f"<li>{escape_html(line)}</li>")
+	enqueue_create_notification(
+		users,
+		{
+			"type": "Alert",
+			"document_type": doc.doctype,
+			"document_name": doc.name,
+			"subject": subject,
+			"email_content": _("البنود ({0}):").format(len(items)) + f"<ul>{''.join(items)}</ul>",
+			"from_user": frappe.session.user,
+		},
+	)
+
+
+def users_with_role(role):
+	"""Active desk users who have the role."""
+	if not role:
+		return []
+	users = frappe.get_all("Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent")
+	return frappe.get_all(
+		"User",
+		filters=[
+			["name", "in", users or ["-"]],
+			["name", "not in", ["Administrator", "Guest"]],
+			["enabled", "=", 1],
+			["user_type", "=", "System User"],
+		],
+		pluck="name",
 	)
 
 
@@ -225,15 +301,18 @@ def _map_quotation(source_name, target_doc=None):
 		if source.get("custom_customer"):
 			target.quotation_to = "Customer"
 			target.party_name = source.custom_customer
-		for row in source.custom_execution_items:
-			if row.get("site_engineer_attachment"):
-				target.append(
-					"custom_attachments",
-					{
-						"attachment_type": SITE_PHOTOS_TYPE,
-						"attachment": row.site_engineer_attachment,
-						"remarks": _("البند {0}: {1}").format(row.idx, row.item_name or row.item_code),
-					},
+		# The items are mapped in order, so each Quotation item stands for the task item
+		# at the same position.
+		for row, item in zip(source.custom_execution_items, target.items):
+			label = _("البند {0}: {1}").format(row.idx, row.item_name or row.item_code)
+			for file in get_item_files(source, row, SITE_ENGINEER_ROLE):
+				_append_quotation_file(target, file, file.attachment_type or SITE_PHOTOS_TYPE, label)
+			office_files = get_item_files(source, row, TECHNICAL_OFFICE_ROLE)
+			if office_files:
+				item.custom_attachment = office_files[0].attachment
+			for file in office_files[1:]:
+				_append_quotation_file(
+					target, file, file.attachment_type, _("{0} (المكتب الفني)").format(label)
 				)
 		target.run_method("set_missing_values")
 		target.run_method("calculate_taxes_and_totals")
@@ -246,14 +325,25 @@ def _map_quotation(source_name, target_doc=None):
 			"Task": {"doctype": "Quotation", "field_no_map": ["status"]},
 			"Task Execution Item": {
 				"doctype": "Quotation Item",
-				"field_map": {
-					"item_description": "custom_item_description",
-					"technical_office_attachment": "custom_attachment",
-				},
+				"field_map": {"item_description": "custom_item_description"},
 			},
 		},
 		target_doc,
 		set_missing_values,
+	)
+
+
+def _append_quotation_file(quotation, file, attachment_type, remarks):
+	# "أخرى" on a Quotation asks for the type in words.
+	attachment_type = attachment_type or OTHER_ATTACHMENT_TYPE
+	quotation.append(
+		"custom_attachments",
+		{
+			"attachment_type": attachment_type,
+			"attachment_type_other": (file.notes or remarks) if attachment_type == OTHER_ATTACHMENT_TYPE else None,
+			"attachment": file.attachment,
+			"remarks": "\n".join(filter(None, (remarks, file.notes))),
+		},
 	)
 
 
@@ -449,6 +539,8 @@ def _validate_item_changes(doc, before, old_state):
 		site_engineer_changed |= old is None or _changed(row, old, SITE_ENGINEER_FIELDS)
 		technical_office_changed |= _changed(row, old, TECHNICAL_OFFICE_FIELDS)
 		review_changed |= _changed(row, old, REVIEW_FIELDS)
+	site_engineer_changed |= item_files_changed(doc, before, SITE_ENGINEER_ROLE)
+	technical_office_changed |= item_files_changed(doc, before, TECHNICAL_OFFICE_ROLE)
 
 	date_changed = _as_date(doc.custom_required_by_date) != _as_date(
 		before.custom_required_by_date if before else None
@@ -486,6 +578,8 @@ def _apply_transition(doc, new_state):
 	elif new_state == STATE_PENDING_REVIEW:
 		if not rows:
 			frappe.throw(_("أضف بند تنفيذ واحد على الأقل قبل الإرسال للمكتب الفني."))
+		# Told once the task is saved in its new state.
+		doc.flags.notify_sent_to_office = True
 
 	elif new_state in (STATE_EXECUTED, STATE_NOTES_DONE):
 		_validate_quantities_and_documents(rows)
@@ -520,7 +614,7 @@ def _apply_inspection_transition(doc, new_state):
 		missing = [
 			str(row.idx)
 			for row in rows
-			if not row.site_engineer_attachment or not (row.description or "").strip()
+			if not cint(row.site_engineer_files) or not (row.description or "").strip()
 		]
 		if missing:
 			frappe.throw(
@@ -575,7 +669,7 @@ def _validate_quantities_and_documents(rows, documents=True):
 		frappe.throw(_("لا توجد بنود تنفيذ."))
 
 	if documents:
-		missing = [str(row.idx) for row in rows if flt(row.qty) <= 0 or not row.technical_office_attachment]
+		missing = [str(row.idx) for row in rows if flt(row.qty) <= 0 or not cint(row.technical_office_files)]
 		if missing:
 			frappe.throw(
 				_("أدخل الكمية وارفع مرفق المكتب الفني لكل البنود. البنود الناقصة: {0}").format(", ".join(missing))
@@ -597,38 +691,39 @@ def _validate_quantities_and_documents(rows, documents=True):
 
 
 def _log_documents(doc, before):
-	previous = {row.name: row for row in before.custom_execution_items} if before else {}
 	review_round = cint(doc.custom_review_round) + 1
 	# A file put back after being removed from its item is already in the history.
 	logged = {(d.row_no, d.uploaded_by_role, d.file) for d in doc.custom_execution_documents}
 
-	for row in doc.custom_execution_items:
-		old = previous.get(row.name)
-		for fieldname, role in ATTACHMENT_ROLES.items():
-			file_url = row.get(fieldname)
-			if (
-				file_url
-				and file_url != (old.get(fieldname) if old else None)
-				and (row.idx, role, file_url) not in logged
-			):
-				doc.append(
-					"custom_execution_documents",
-					{
-						"row_no": row.idx,
-						"item_code": row.item_code,
-						"item_name": row.item_name,
-						"uploaded_by_role": role,
-						"review_round": review_round,
-						"file": file_url,
-						"uploaded_by": frappe.session.user,
-						"uploaded_on": now_datetime(),
-					},
-				)
+	items = {row.row_key: row for row in doc.custom_execution_items}
+	previous = {(f.row_key, f.uploaded_by_role, f.attachment) for f in before.get(ITEM_ATTACHMENTS)} if before else set()
+	for file in doc.get(ITEM_ATTACHMENTS):
+		row = items.get(file.row_key)
+		if (
+			not row
+			or (file.row_key, file.uploaded_by_role, file.attachment) in previous
+			or (row.idx, file.uploaded_by_role, file.attachment) in logged
+		):
+			continue
+		logged.add((row.idx, file.uploaded_by_role, file.attachment))
+		doc.append(
+			"custom_execution_documents",
+			{
+				"row_no": row.idx,
+				"item_code": row.item_code,
+				"item_name": " - ".join(filter(None, (row.item_name, file.attachment_type))),
+				"uploaded_by_role": file.uploaded_by_role,
+				"review_round": review_round,
+				"file": file.attachment,
+				"uploaded_by": frappe.session.user,
+				"uploaded_on": now_datetime(),
+			},
+		)
 
 	for table, source in ATTACHMENT_TABLES.items():
 		previous_files = {row.name: row.attachment for row in before.get(table)} if before else {}
 		for row in doc.get(table):
-			role = ATTACHMENT_ROLES["technical_office_attachment"]
+			role = TECHNICAL_OFFICE_ROLE
 			if (
 				row.attachment
 				and row.attachment != previous_files.get(row.name)
@@ -658,6 +753,60 @@ def _changed(row, old, fieldnames):
 		elif (value or "").strip() != (old_value or "").strip():
 			return True
 	return False
+
+
+def sync_item_attachments(doc):
+	"""Tie each item file to its item: give new items their key, drop the files of removed
+	items, and count each side's files on the item."""
+	if not doc.meta.has_field(ITEM_ATTACHMENTS):
+		return
+
+	items = {}
+	for row in doc.get("custom_execution_items"):
+		# A copied row comes with the key of the row it was copied from.
+		if not row.row_key or row.row_key in items:
+			row.row_key = frappe.generate_hash(length=12)
+		items[row.row_key] = row
+
+	files = [file for file in doc.get(ITEM_ATTACHMENTS) if file.row_key in items]
+	doc.set(ITEM_ATTACHMENTS, files)
+	counts = {}
+	for idx, file in enumerate(files, 1):
+		if file.uploaded_by_role not in ITEM_FILE_COUNTS:
+			frappe.throw(_("جهة المرفق غير معروفة: {0}").format(file.uploaded_by_role))
+		row = items[file.row_key]
+		file.idx = idx
+		file.row_no = row.idx
+		file.item_code = row.item_code
+		key = (file.row_key, file.uploaded_by_role)
+		counts[key] = counts.get(key, 0) + 1
+
+	for row in items.values():
+		for role, fieldname in ITEM_FILE_COUNTS.items():
+			row.set(fieldname, counts.get((row.row_key, role), 0))
+
+
+def get_item_files(doc, row, role):
+	return [
+		file
+		for file in doc.get(ITEM_ATTACHMENTS)
+		if file.row_key == row.row_key and file.uploaded_by_role == role
+	]
+
+
+def item_files_changed(doc, before, role):
+	"""Whether one side's files on the task's current items were added, removed or edited.
+	The files of a removed item go with it, and removing items is checked on its own."""
+	keys = {row.row_key for row in doc.get("custom_execution_items")}
+
+	def files(task):
+		return sorted(
+			tuple((file.get(f) or "").strip() for f in ITEM_ATTACHMENT_FIELDS)
+			for file in (task.get(ITEM_ATTACHMENTS) if task else [])
+			if file.uploaded_by_role == role and file.row_key in keys
+		)
+
+	return files(doc) != files(before)
 
 
 def _in_workflow(doc):
