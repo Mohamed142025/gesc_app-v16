@@ -128,6 +128,7 @@ after_migrate = [
 	"gesc_app.gesc_app.quotation_approval_setup.setup_quotation_approval",
 	"gesc_app.gesc_app.quotation_addendum.setup_quotation_addendum",
 	"gesc_app.gesc_app.private_comments.setup_private_comments",
+	"gesc_app.gesc_app.assignment_edit.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -180,7 +181,15 @@ doc_events = {
 		"validate": "gesc_app.gesc_app.task_execution.validate_task_type",
 	},
 	"ToDo": {
-		"on_update": "gesc_app.gesc_app.material_submittal.acknowledge",
+		"on_update": [
+			"gesc_app.gesc_app.material_submittal.acknowledge",
+			# An assignee may edit what they are assigned (System Settings, assignment_edit).
+			"gesc_app.gesc_app.assignment_edit.sync_edit_share",
+		],
+		"on_trash": "gesc_app.gesc_app.assignment_edit.revoke_on_delete",
+	},
+	"System Settings": {
+		"on_update": "gesc_app.gesc_app.assignment_edit.apply_setting",
 	},
 	"Quotation": {
 		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
