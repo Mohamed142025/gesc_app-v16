@@ -71,10 +71,11 @@ DECISION_STATES = (STATE_EXECUTED, STATE_NOTES_DONE)
 SITE_ENGINEER_FIELDS = (
 	"item_code",
 	"site_engineer_notes",
-	"item_description",
-	"description",
 	"initial_qty",
 )
+# The item's description stays open after the task is sent: the Site Engineer or the
+# Technical Office can still set it while the task is with the office.
+DESCRIPTION_FIELDS = ("item_description", "description")
 TECHNICAL_OFFICE_FIELDS = ("qty", "technical_office_notes")
 REVIEW_FIELDS = ("is_rejected", "site_engineer_approval_notes")
 
@@ -130,7 +131,11 @@ def validate_task(doc, method=None):
 		return
 
 	is_submittal = _is_submittal(doc) or (before and _is_submittal(before))
-	if old_state == STATE_OPEN or (is_submittal and old_state == STATE_IN_PROGRESS):
+	if (
+		old_state == STATE_OPEN
+		or old_state in _office_states(doc)
+		or (is_submittal and old_state == STATE_IN_PROGRESS)
+	):
 		_set_item_descriptions(doc)
 	_keep_system_fields(doc, before)
 
@@ -533,10 +538,11 @@ def _validate_item_changes(doc, before, old_state):
 	current = {row.name for row in doc.custom_execution_items}
 
 	site_engineer_changed = bool(set(previous) - current)
-	technical_office_changed = review_changed = False
+	technical_office_changed = review_changed = description_changed = False
 	for row in doc.custom_execution_items:
 		old = previous.get(row.name)
 		site_engineer_changed |= old is None or _changed(row, old, SITE_ENGINEER_FIELDS)
+		description_changed |= old is not None and _changed(row, old, DESCRIPTION_FIELDS)
 		technical_office_changed |= _changed(row, old, TECHNICAL_OFFICE_FIELDS)
 		review_changed |= _changed(row, old, REVIEW_FIELDS)
 	site_engineer_changed |= item_files_changed(doc, before, SITE_ENGINEER_ROLE)
@@ -555,7 +561,12 @@ def _validate_item_changes(doc, before, old_state):
 				doc.get("custom_quotation") or ""
 			)
 		)
-	office_states = INSPECTION_OFFICE_STATES if doc.get("custom_is_pre_quotation_inspection") else TECHNICAL_OFFICE_STATES
+	office_states = _office_states(doc)
+	if description_changed and old_state != STATE_OPEN and old_state not in office_states:
+		frappe.throw(
+			_("توصيف البنود يُعدَّل والمهمة مفتوحة أو عند المكتب الفني (الحالة الحالية: {0}).").format(old_state)
+		)
+
 	if technical_office_changed and old_state not in office_states:
 		frappe.throw(
 			_("الكمية ومرفقات وملاحظات المكتب الفني تُعدَّل فقط والمهمة عند المكتب الفني (الحالة الحالية: {0}).").format(
@@ -807,6 +818,10 @@ def item_files_changed(doc, before, role):
 		)
 
 	return files(doc) != files(before)
+
+
+def _office_states(doc):
+	return INSPECTION_OFFICE_STATES if doc.get("custom_is_pre_quotation_inspection") else TECHNICAL_OFFICE_STATES
 
 
 def _in_workflow(doc):

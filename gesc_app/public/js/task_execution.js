@@ -41,42 +41,39 @@
 	const FILE_TABLES = ["custom_technical_office_attachments", "custom_drawings", "custom_calculations"];
 	const FILE_FIELDS = ["attachment", "attachment_type", "notes"];
 
-	// Columns of the items grid for each kind of task (sizes add up to 10).
+	// Columns of the items grid for each kind of task (sizes add up to 10). The item's
+	// name shows under its code and the unit beside the quantity (format_execution_grids).
 	const ITEM_COLUMNS = {
 		execution: {
 			item_code: 2,
-			uom: 1,
+			item_description: 2,
+			description: 2,
 			qty: 1,
 			is_rejected: 1,
-			description: 3,
 			site_engineer_files: 1,
 			technical_office_files: 1,
 		},
 		inspection: {
 			item_code: 2,
-			uom: 1,
-			qty: 1,
+			item_description: 2,
 			description: 3,
-			site_engineer_files: 2,
+			qty: 1,
+			site_engineer_files: 1,
 			technical_office_files: 1,
 		},
 		submittal: {
 			item_code: 2,
-			uom: 1,
+			item_description: 2,
+			description: 3,
 			qty: 1,
 			is_rejected: 1,
-			description: 3,
-			technical_office_files: 2,
+			technical_office_files: 1,
 		},
 	};
 
-	const SITE_ENGINEER_FIELDS = [
-		"item_code",
-		"site_engineer_notes",
-		"item_description",
-		"description",
-		"initial_qty",
-	];
+	const SITE_ENGINEER_FIELDS = ["item_code", "site_engineer_notes", "initial_qty"];
+	// The description stays open while the task is with the Technical Office.
+	const DESCRIPTION_FIELDS = ["item_description", "description"];
 	const TECHNICAL_OFFICE_FIELDS = ["qty", "technical_office_notes"];
 
 	// Each item has several files from each side, kept in one table on the task and tied
@@ -90,6 +87,28 @@
 	};
 
 	keep_replaced_attachments();
+	add_execution_grid_style();
+
+	// The items grid: descriptions wrap over two lines, counts and ticks sit centred, and
+	// rows breathe a little more than Frappe's single-line default.
+	function add_execution_grid_style() {
+		if (document.getElementById("gesc-execution-grid-style")) return;
+		const grid = ".gesc-execution-grid";
+		$(`<style id="gesc-execution-grid-style">
+			${grid} .grid-body .data-row .grid-static-col { padding-top: 8px; padding-bottom: 8px; }
+			${grid} .grid-static-col[data-fieldname="description"] .static-area,
+			${grid} .grid-static-col[data-fieldname="item_description"] .static-area {
+				white-space: normal; display: -webkit-box; -webkit-line-clamp: 2;
+				-webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;
+			}
+			${grid} .grid-static-col[data-fieldname="item_code"] .static-area { white-space: normal; line-height: 1.35; }
+			${grid} .grid-static-col[data-fieldname="site_engineer_files"],
+			${grid} .grid-static-col[data-fieldname="technical_office_files"],
+			${grid} .grid-static-col[data-fieldname="is_rejected"] { text-align: center; }
+			${grid} .gesc-item-files { min-width: 52px; border-radius: 999px; }
+			${grid} .grid-heading-row .grid-static-col { font-weight: 600; white-space: normal; line-height: 1.3; }
+		</style>`).appendTo(document.head);
+	}
 
 	frappe.ui.form.on("Task", {
 		setup(frm) {
@@ -273,6 +292,9 @@
 				)
 			);
 			set_grid_property(items, "is_rejected", "formatter", format_rejected);
+			set_grid_property(items, "item_code", "formatter", format_item);
+			set_grid_property(items, "qty", "formatter", format_qty);
+			items.wrapper.addClass("gesc-execution-grid");
 			// Caught on the way down, so the click does not open the row as well.
 			const wrapper = items.wrapper?.get(0);
 			if (wrapper && !wrapper.__item_files_click) {
@@ -465,6 +487,24 @@
 		frm.save();
 	}
 
+	// The item code with its name beneath it.
+	function format_item(value, df, options, row) {
+		if (!value) return "";
+		const link = frappe.form.formatters.Link(value, { fieldtype: "Link", options: "Item" }, options, row);
+		const name = row?.item_name && row.item_name !== value ? row.item_name : "";
+		return name
+			? `${link}<div class="text-muted small ellipsis" title="${frappe.utils.escape_html(name)}">${frappe.utils.escape_html(name)}</div>`
+			: link;
+	}
+
+	// The quantity with its unit.
+	function format_qty(value, df, options, row) {
+		if (value === null || value === undefined || value === "") return "";
+		const qty = frappe.form.formatters.Float(value, { fieldtype: "Float" }, { inline: true });
+		const uom = row?.uom ? ` <span class="text-muted small">${frappe.utils.escape_html(__(row.uom))}</span>` : "";
+		return `<span class="bold">${qty}</span>${uom}`;
+	}
+
 	function format_rejected(value) {
 		return cint(value) ? `<span class="text-danger bold">${__("مرفوض")}</span>` : "";
 	}
@@ -527,6 +567,9 @@
 
 		SITE_ENGINEER_FIELDS.forEach((fieldname) =>
 			set_grid_property(grid, fieldname, "read_only", is_open ? 0 : 1)
+		);
+		DESCRIPTION_FIELDS.forEach((fieldname) =>
+			set_grid_property(grid, fieldname, "read_only", is_open || with_technical_office ? 0 : 1)
 		);
 		TECHNICAL_OFFICE_FIELDS.forEach((fieldname) =>
 			set_grid_property(grid, fieldname, "read_only", with_technical_office ? 0 : 1)

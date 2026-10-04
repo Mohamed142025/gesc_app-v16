@@ -634,9 +634,9 @@ def setup_permissions():
 	changed = set()
 	for doctype, role, permlevel, rights in PERMISSIONS:
 		setup_custom_perms(doctype)
-		if frappe.db.exists(
-			"Custom DocPerm", {"parent": doctype, "role": role, "permlevel": permlevel, "if_owner": 0}
-		):
+		# Any rule for the role at this level, "Only If Creator" too, is the admin's to keep:
+		# the defaults go in on the first setup only.
+		if frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": permlevel}):
 			continue
 
 		frappe.get_doc(
