@@ -48,6 +48,8 @@ app_include_js = [
 
 # include js in doctype views
 doctype_js = {
+	# "الغرض" with the sample request (sample_request).
+	"Material Request": "public/js/material_request_purpose.js",
 	"Quotation": ["public/js/quotation.js", "public/js/quotation_approval.js", "public/js/quotation_addendum.js"],
 	"Project": ["public/js/project.js", "public/js/project_controls.js"],
 	"Task": ["public/js/task.js", "public/js/task_execution.js"],
@@ -129,6 +131,7 @@ after_migrate = [
 	"gesc_app.gesc_app.quotation_addendum.setup_quotation_addendum",
 	"gesc_app.gesc_app.private_comments.setup_private_comments",
 	"gesc_app.gesc_app.assignment_edit.setup",
+	"gesc_app.gesc_app.sample_request.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -190,6 +193,13 @@ doc_events = {
 	},
 	"System Settings": {
 		"on_update": "gesc_app.gesc_app.assignment_edit.apply_setting",
+	},
+	# Sample requests: a Material Issue for a customer (sample_request).
+	"Material Request": {
+		"before_validate": "gesc_app.gesc_app.sample_request.sync_purpose",
+	},
+	"Stock Entry": {
+		"before_validate": "gesc_app.gesc_app.sample_request.apply_sample",
 	},
 	"Quotation": {
 		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
@@ -279,9 +289,10 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "gesc_app.event.get_events"
-# }
+override_whitelisted_methods = {
+	# A sample request's Stock Entry is a sample issue for its customer (sample_request).
+	"erpnext.stock.doctype.material_request.material_request.make_stock_entry": "gesc_app.gesc_app.sample_request.make_stock_entry",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
