@@ -7,6 +7,9 @@ of it. The ToDo keeps a mark that it gave write, so only that write is taken bac
 assignment is closed, cancelled or deleted, and no other open assignment of theirs on the
 same document still needs it. Reading stays, as Frappe leaves it.
 
+A document that is completed keeps its share as it is: closing its assignments then takes
+nothing back, and the share stays the assignee's like any other.
+
 Turning the setting on gives write on the open assignments; turning it off takes back
 what it gave. Roles, workflow states and field levels still apply as usual.
 """
@@ -65,8 +68,23 @@ def sync_edit_share(todo, method=None):
 		if _grant(todo):
 			todo.db_set(MARK, 1, update_modified=False)
 	elif todo.status != "Open" and todo.get(MARK):
+		# Decided as the save is committed: completing a Task closes its assignments before
+		# the Task's own status is written.
+		frappe.db.before_commit.add(lambda: _close(todo.name))
+
+
+def _close(todo_name):
+	todo = frappe.get_doc("ToDo", todo_name)
+	if todo.status == "Open" or not todo.get(MARK):
+		return
+	if not _completed(todo.reference_type, todo.reference_name):
 		_revoke(todo)
-		todo.db_set(MARK, 0, update_modified=False)
+	todo.db_set(MARK, 0, update_modified=False)
+
+
+def _completed(doctype, name):
+	meta = frappe.get_meta(doctype)
+	return meta.has_field("status") and frappe.db.get_value(doctype, name, "status") == "Completed"
 
 
 def revoke_on_delete(todo, method=None):

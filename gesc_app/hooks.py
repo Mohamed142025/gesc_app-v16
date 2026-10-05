@@ -132,6 +132,7 @@ after_migrate = [
 	"gesc_app.gesc_app.private_comments.setup_private_comments",
 	"gesc_app.gesc_app.assignment_edit.setup",
 	"gesc_app.gesc_app.sample_request.setup",
+	"gesc_app.gesc_app.project_warehouse.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -227,6 +228,8 @@ doc_events = {
 	},
 	"Project": {
 		"validate": "gesc_app.gesc_app.project_controls.validate_project",
+		# Every new project gets its own warehouse (project_warehouse).
+		"after_insert": "gesc_app.gesc_app.project_warehouse.create_project_warehouse",
 		"on_update": [
 			"gesc_app.gesc_app.project_utils.generate_tasks_from_template",
 			"gesc_app.gesc_app.project_controls.log_project_exception",
@@ -300,6 +303,7 @@ override_whitelisted_methods = {
 override_doctype_dashboards = {
 	"Quotation": "gesc_app.gesc_app.quotation_dashboard.get_data",
 	"Task": "gesc_app.gesc_app.task_dashboard.get_data",
+	"Project": "gesc_app.gesc_app.project_warehouse.get_dashboard_data",
 }
 
 # exempt linked doctypes from being automatically cancelled
