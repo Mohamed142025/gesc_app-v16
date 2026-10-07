@@ -12,8 +12,9 @@ in a later year stays in its family. Numbers are not reused, even for a deleted 
 quotation numbered before this scheme (SAL-QTN-2026-00006) keeps its name and its
 amendments keep Frappe's -1, -2; its addenda are SAL-QTN-2026-00006-002, -003 ...
 
-An addendum is made from a main quotation that has become a contract (Ordered), for the
-same customer. The sales order made from it becomes an addendum to that contract.
+An addendum is made from a submitted main quotation (Open, or already a contract: Ordered),
+for the same customer. The sales order made from it becomes an addendum to the contract made
+from the main quotation, so that contract has to exist by then.
 """
 
 import re
@@ -30,6 +31,8 @@ FAMILY_DIGITS = 6
 INDEX_DIGITS = 3
 AMENDMENT_DIGITS = 2
 ORDERED = ("Ordered", "Partially Ordered")
+# A main quotation takes addenda once submitted: still open, or already a contract.
+ADDENDUM_ALLOWED = ("Open",) + ORDERED
 
 # A name in a family: its base ends with the three-digit number in the family, and an
 # amendment adds a two-digit counter.
@@ -185,9 +188,9 @@ def _check_main(main):
 				frappe.bold(main.name), get_link_to_form("Quotation", main.custom_addendum_to)
 			)
 		)
-	if main.docstatus != 1 or main.status not in ORDERED:
+	if main.docstatus != 1 or main.status not in ADDENDUM_ALLOWED:
 		frappe.throw(
-			_("يُعمل الملحق بعد تحويل عرض السعر الأساسي {0} لأمر بيع. حالته الآن: {1}.").format(
+			_("يُعمل الملحق من عرض سعر أساسي معتمد (مفتوح أو محوّل لأمر بيع). حالة {0} الآن: {1}.").format(
 				frappe.bold(main.name), _(main.status)
 			)
 		)

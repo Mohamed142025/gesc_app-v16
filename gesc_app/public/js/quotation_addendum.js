@@ -1,7 +1,8 @@
-// Quotation addenda: "ملحق عرض سعر" on a main quotation that has become a contract. The
-// server numbers the addendum in the main quotation's family and checks the same rules.
+// Quotation addenda: "ملحق عرض سعر" on a submitted main quotation (open or already a
+// contract). The server numbers the addendum in the main quotation's family and checks
+// the same rules.
 (() => {
-	const ORDERED = ["Ordered", "Partially Ordered"];
+	const ADDENDUM_ALLOWED = ["Open", "Ordered", "Partially Ordered"];
 
 	frappe.ui.form.on("Quotation", {
 		refresh(frm) {
@@ -18,7 +19,7 @@
 	function can_add(frm) {
 		return (
 			frm.doc.docstatus === 1 &&
-			ORDERED.includes(frm.doc.status) &&
+			ADDENDUM_ALLOWED.includes(frm.doc.status) &&
 			!frm.doc.custom_addendum_to &&
 			frappe.model.can_create("Quotation")
 		);
