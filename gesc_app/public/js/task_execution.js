@@ -5,6 +5,7 @@
 // consultant rejects, and the Material Request of an approved material submittal.
 (() => {
 	const STATE_OPEN = "مفتوحة";
+	const STATE_PENDING_REVIEW = "في انتظار مراجعة المكتب الفني";
 	const STATE_IN_PROGRESS = "جاري العمل";
 	const STATE_INSPECTED = "تم المعاينة";
 	const TECHNICAL_OFFICE_STATES = [
@@ -544,7 +545,13 @@
 			: frm.doc.custom_is_pre_quotation_inspection
 			? state === STATE_INSPECTED
 			: TECHNICAL_OFFICE_STATES.includes(state);
-		return { is_submittal, is_open, with_technical_office };
+		// The Site Engineer's rows, codes, notes and files stay open until the Technical
+		// Office presses "بدء العمل" (task_execution.SITE_ENGINEER_STATES).
+		const site_engineer_can_edit = is_submittal
+			? is_open
+			: is_open ||
+			  state === (frm.doc.custom_is_pre_quotation_inspection ? STATE_INSPECTED : STATE_PENDING_REVIEW);
+		return { is_submittal, is_open, with_technical_office, site_engineer_can_edit };
 	}
 
 	// Each side changes its own files: the Technical Office's are on field level 1, like
@@ -552,7 +559,7 @@
 	function can_edit_item_files(frm, role) {
 		const access = item_edit_access(frm);
 		return role === SITE_ENGINEER_ROLE
-			? access.is_open
+			? access.site_engineer_can_edit
 			: access.with_technical_office && !!frm.perm?.[1]?.write;
 	}
 
@@ -560,13 +567,13 @@
 		const grid = frm.get_field("custom_execution_items")?.grid;
 		if (!grid) return;
 
-		const { is_submittal, is_open, with_technical_office } = item_edit_access(frm);
+		const { is_submittal, is_open, with_technical_office, site_engineer_can_edit } = item_edit_access(frm);
 
 		set_grid_property(grid, "manufacturer", "read_only", is_open ? 0 : 1);
 		set_grid_property(grid, "site_engineer_section", "label", is_submittal ? __("بيانات المادة") : __("مهندس الموقع"));
 
 		SITE_ENGINEER_FIELDS.forEach((fieldname) =>
-			set_grid_property(grid, fieldname, "read_only", is_open ? 0 : 1)
+			set_grid_property(grid, fieldname, "read_only", site_engineer_can_edit ? 0 : 1)
 		);
 		DESCRIPTION_FIELDS.forEach((fieldname) =>
 			set_grid_property(grid, fieldname, "read_only", is_open || with_technical_office ? 0 : 1)
@@ -574,8 +581,8 @@
 		TECHNICAL_OFFICE_FIELDS.forEach((fieldname) =>
 			set_grid_property(grid, fieldname, "read_only", with_technical_office ? 0 : 1)
 		);
-		frm.set_df_property("custom_execution_items", "cannot_add_rows", is_open ? 0 : 1);
-		frm.set_df_property("custom_execution_items", "cannot_delete_rows", is_open ? 0 : 1);
+		frm.set_df_property("custom_execution_items", "cannot_add_rows", site_engineer_can_edit ? 0 : 1);
+		frm.set_df_property("custom_execution_items", "cannot_delete_rows", site_engineer_can_edit ? 0 : 1);
 	}
 
 	// Submittal files are prepared while open or in progress, like the items.

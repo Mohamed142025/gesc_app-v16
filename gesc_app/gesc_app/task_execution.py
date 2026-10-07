@@ -66,6 +66,11 @@ TECHNICAL_OFFICE_STATES = (
 )
 # Once work starts on an inspection, quantities and prices live in its Quotation.
 INSPECTION_OFFICE_STATES = (STATE_INSPECTED,)
+# The Site Engineer's part of the items (the rows, their codes, notes and files) stays
+# open until the Technical Office presses "بدء العمل": while the task is open, and while
+# it waits with the office.
+SITE_ENGINEER_STATES = (STATE_OPEN, STATE_PENDING_REVIEW)
+INSPECTION_SITE_ENGINEER_STATES = (STATE_OPEN, STATE_INSPECTED)
 DECISION_STATES = (STATE_EXECUTED, STATE_NOTES_DONE)
 
 SITE_ENGINEER_FIELDS = (
@@ -552,8 +557,12 @@ def _validate_item_changes(doc, before, old_state):
 		before.custom_required_by_date if before else None
 	)
 
-	if site_engineer_changed and old_state != STATE_OPEN:
-		frappe.throw(_("لا يمكن إضافة أو حذف البنود أو تعديل بيانات مهندس الموقع بعد إرسال المهمة للمكتب الفني."))
+	if site_engineer_changed and old_state not in _site_engineer_states(doc):
+		frappe.throw(
+			_("لا يمكن إضافة أو حذف البنود أو تعديل بيانات مهندس الموقع بعد بدء المكتب الفني العمل (الحالة الحالية: {0}).").format(
+				old_state
+			)
+		)
 
 	if technical_office_changed and doc.get("custom_is_pre_quotation_inspection") and old_state == STATE_IN_PROGRESS:
 		frappe.throw(
@@ -822,6 +831,10 @@ def item_files_changed(doc, before, role):
 
 def _office_states(doc):
 	return INSPECTION_OFFICE_STATES if doc.get("custom_is_pre_quotation_inspection") else TECHNICAL_OFFICE_STATES
+
+
+def _site_engineer_states(doc):
+	return INSPECTION_SITE_ENGINEER_STATES if doc.get("custom_is_pre_quotation_inspection") else SITE_ENGINEER_STATES
 
 
 def _in_workflow(doc):
