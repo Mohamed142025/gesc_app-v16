@@ -1,11 +1,12 @@
-"""Assignees may edit what they are assigned, when System Settings says so.
+"""Assignees may edit, submit and share what they are assigned, when System Settings says so.
 
 Frappe shares an assigned document with its assignee for reading only, and only when they
-cannot read it already. With "السماح للمعيَّن له بتعديل المستند المسند" on, an open
-assignment (ToDo) also lets its assignee edit the document: write is added to their share
-of it. The ToDo keeps a mark that it gave write, so only that write is taken back - when the
-assignment is closed, cancelled or deleted, and no other open assignment of theirs on the
-same document still needs it. Reading stays, as Frappe leaves it.
+cannot read it already. With "السماح للمعيَّن له بتعديل المستند المسند" on, every open
+assignment (ToDo) shares the document with its assignee for read, write, submit and share,
+whatever their roles already allow. The ToDo keeps a mark that it gave those rights, so they
+are taken back - when the assignment is closed, cancelled or deleted, and no other open
+assignment of theirs on the same document still needs them. Reading stays, as Frappe
+leaves it.
 
 A document that is completed keeps its share as it is: closing its assignments then takes
 nothing back, and the share stays the assignee's like any other.
@@ -33,14 +34,14 @@ def setup():
 					"label": "السماح للمعيَّن له بتعديل المستند المسند",
 					"fieldtype": "Check",
 					"insert_after": "disable_document_sharing",
-					"description": "من يُسنَد له مستند (Assign To) يقدر يعدّله ما دام الإسناد مفتوحاً، ولو لم يكن دوره يسمح بالتعديل. تُسحب صلاحية التعديل عند إغلاق الإسناد أو إلغائه.",
+					"description": "من يُسنَد له مستند (Assign To) تتم مشاركة المستند معه (قراءة، تعديل، اعتماد، مشاركة) ما دام الإسناد مفتوحاً. تُسحب الصلاحيات الممنوحة عند إغلاق الإسناد أو إلغائه.",
 					"module": MODULE,
 				}
 			],
 			"ToDo": [
 				{
 					"fieldname": MARK,
-					"label": "منح صلاحية التعديل",
+					"label": "منح صلاحيات التعديل والاعتماد والمشاركة",
 					"fieldtype": "Check",
 					"insert_after": "assigned_by",
 					"read_only": 1,
@@ -114,20 +115,37 @@ def apply_setting(settings, method=None):
 			todo.db_set(MARK, 0, update_modified=False)
 
 
+def backfill():
+	"""Every open assignment shares its document as the rule above says: the ones made before
+	the rule, and the ones that gave only write."""
+	if not is_enabled():
+		return 0
+	count = 0
+	for name in frappe.get_all(
+		"ToDo",
+		filters={"status": "Open", "reference_type": ["is", "set"], "reference_name": ["is", "set"]},
+		pluck="name",
+	):
+		todo = frappe.get_doc("ToDo", name)
+		if todo.get(MARK):
+			todo.db_set(MARK, 0, update_modified=False)
+		sync_edit_share(todo)
+		count += 1
+	return count
+
+
 # Sharing --------------------------------------------------------------------------------
 
 
 def _grant(todo):
-	"""Write on the document for its assignee, when their roles do not already give it."""
+	"""Read, write, submit and share on the document for its assignee."""
 	doctype, name, user = todo.reference_type, todo.reference_name, todo.allocated_to
 	if not frappe.db.exists(doctype, name) or not frappe.db.get_value("User", user, "enabled"):
 		return False
-	# Write already given by another open assignment of theirs: this one needs it too, so
+	# Already given by another open assignment of theirs: this one needs it too, so
 	# closing the other one does not take it away.
 	if _other_marked_open(todo):
 		return True
-	if frappe.has_permission(doctype, "write", doc=name, user=user):
-		return False
 	if frappe.get_system_settings("disable_document_sharing"):
 		frappe.msgprint(
 			_("مشاركة المستندات معطّلة في System Settings، فلا يمكن منح {0} صلاحية تعديل {1}.").format(
@@ -138,21 +156,27 @@ def _grant(todo):
 		)
 		return False
 
+	# A share may give submit only on a submittable doctype.
+	submit = 1 if frappe.get_meta(doctype).is_submittable else 0
 	share_name = get_share_name(doctype, name, user, 0)
 	if share_name:
-		# Only write is turned on; whatever else the share gives is kept.
 		share = frappe.get_doc("DocShare", share_name)
-		share.write = 1
-		share.read = 1
+		if share.read and share.write and share.share and share.submit == submit:
+			return True
+		share.read = share.write = share.share = 1
+		share.submit = submit
 		share.flags.ignore_share_permission = True
 		share.save(ignore_permissions=True)
 	else:
-		add_docshare(doctype, name, user, read=1, write=1, flags={"ignore_share_permission": True})
+		add_docshare(
+			doctype, name, user, read=1, write=1, submit=submit, share=1, flags={"ignore_share_permission": True}
+		)
 	return True
 
 
 def _revoke(todo):
-	"""Take back the write this assignment gave, unless another open one still needs it."""
+	"""Take back the write, submit and share this assignment gave, unless another open one
+	still needs them. Reading stays."""
 	doctype, name, user = todo.reference_type, todo.reference_name, todo.allocated_to
 	if _other_marked_open(todo):
 		return
@@ -160,7 +184,7 @@ def _revoke(todo):
 	if not share_name:
 		return
 	share = frappe.get_doc("DocShare", share_name)
-	share.write = 0
+	share.write = share.submit = share.share = 0
 	share.flags.ignore_share_permission = True
 	share.save(ignore_permissions=True)
 
