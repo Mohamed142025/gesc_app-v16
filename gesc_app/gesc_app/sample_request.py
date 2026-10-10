@@ -171,6 +171,7 @@ def _check_customer_and_project(doc):
 # Stock Entry ----------------------------------------------------------------------------
 
 
+@frappe.whitelist()
 def make_stock_entry(source_name, target_doc=None):
 	"""ERPNext's Stock Entry from a Material Request; a sample request's is a sample issue for
 	its customer."""
