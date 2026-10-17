@@ -464,8 +464,39 @@ def create_material_request(task, quantities=None):
 	# rights to create or submit purchase requests.
 	material_request.flags.ignore_permissions = True
 	material_request.insert()
+	copy_task_attachments(task, material_request)
 	material_request.submit()
 	return material_request.name
+
+
+def copy_task_attachments(task, doc):
+	"""Attach to `doc` every file of the task: those attached to it and those in its
+	attach fields and tables. The copies share the stored file instead of duplicating it."""
+	# One copy per stored file, keyed by its URL.
+	files = {}
+	for file in frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Task", "attached_to_name": task.name, "is_folder": 0},
+		fields=["name", "file_url"],
+		order_by="creation",
+	):
+		files.setdefault(file.file_url, file.name)
+	for row in [task, *task.get_all_children()]:
+		for df in row.meta.get("fields", {"fieldtype": ("in", ("Attach", "Attach Image"))}):
+			url = row.get(df.fieldname)
+			if url and url not in files:
+				name = frappe.db.get_value("File", {"file_url": url, "is_folder": 0})
+				if name:
+					files[url] = name
+
+	attached = set(
+		frappe.get_all(
+			"File", filters={"attached_to_doctype": doc.doctype, "attached_to_name": doc.name}, pluck="file_url"
+		)
+	)
+	for url, name in files.items():
+		if url not in attached:
+			frappe.get_doc("File", name).create_attachment_copy(doc.doctype, doc.name, ignore_permissions=True)
 
 
 def get_project_warehouse(project, company=None):
