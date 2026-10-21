@@ -133,6 +133,8 @@ after_migrate = [
 	"gesc_app.gesc_app.assignment_edit.setup",
 	"gesc_app.gesc_app.sample_request.setup",
 	"gesc_app.gesc_app.project_warehouse.setup",
+	# The project's name next to every project field (project_title).
+	"gesc_app.gesc_app.project_title.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -234,6 +236,7 @@ doc_events = {
 			"gesc_app.gesc_app.project_utils.generate_tasks_from_template",
 			"gesc_app.gesc_app.project_controls.log_project_exception",
 			"gesc_app.gesc_app.project_utils.create_project_items",
+			"gesc_app.gesc_app.project_title.update_project_title",
 		],
 	},
 	"Sales Order": {
