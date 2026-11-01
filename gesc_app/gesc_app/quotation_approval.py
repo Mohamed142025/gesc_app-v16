@@ -3,8 +3,8 @@
 When it is on, a quotation is submitted only once the approver role has approved it.
 The approval holds a fingerprint of the commercial content (party, items, prices,
 discounts, taxes, totals, down payment, payment terms, terms and validity); changing any
-of it drops the approval. Printing, PDF and email of an unapproved draft can be blocked
-for everyone but the approvers. The creator (and whoever asked for approval) is notified
+of it drops the approval. Printing and PDF of an unapproved draft can be blocked for all
+but the print role, and its email for all but the approvers; each print of one is logged. The creator (and whoever asked for approval) is notified
 of the decision; a rejection also comes as a ToDo with the reason. A request for approval
 also notifies the role chosen for it in Selling Settings.
 """
@@ -43,6 +43,7 @@ def get_settings():
 		approver_role=get("custom_quotation_approver_role"),
 		request_notify_role=get("custom_quotation_request_notify_role"),
 		block_print=bool(get("custom_quotation_block_unapproved_print")),
+		unapproved_print_role=get("custom_quotation_unapproved_print_role"),
 	)
 
 
@@ -114,28 +115,61 @@ def before_submit(doc, method=None):
 
 
 def before_print(doc, method=None, print_settings=None):
-	_check_can_send(doc)
+	"""Printing and PDF of an unapproved draft are for the print role only."""
+	settings = get_settings()
+	if not _is_blocked(doc, settings):
+		return
+	role = settings.unapproved_print_role
+	if not (role and role in frappe.get_roles()):
+		frappe.throw(
+			_("عرض السعر {0} غير معتمد بعد، فلا يمكن طباعته أو تنزيله.").format(frappe.bold(doc.name)),
+			title=_("عرض السعر غير معتمد"),
+		)
+	_log_unapproved_print(doc)
 
 
 def check_email(communication, method=None):
-	"""An email about an unapproved draft quotation is not sent."""
+	"""An email about an unapproved draft quotation is sent by the approvers only."""
 	if communication.reference_doctype != "Quotation" or communication.sent_or_received != "Sent":
 		return
 	if not communication.reference_name or communication.communication_medium != "Email":
 		return
-	_check_can_send(frappe.get_doc("Quotation", communication.reference_name))
-
-
-def _check_can_send(doc):
 	settings = get_settings()
-	if not (settings.enabled and settings.block_print) or doc.docstatus != 0:
-		return
-	if doc.get("custom_approval_status") == STATUS_APPROVED or is_approver(settings):
-		return
-	frappe.throw(
-		_("عرض السعر {0} غير معتمد بعد، فلا يمكن طباعته أو تنزيله أو إرساله للعميل.").format(frappe.bold(doc.name)),
-		title=_("عرض السعر غير معتمد"),
+	doc = frappe.get_doc("Quotation", communication.reference_name)
+	if _is_blocked(doc, settings) and not is_approver(settings):
+		frappe.throw(
+			_("عرض السعر {0} غير معتمد بعد، فلا يمكن إرساله للعميل.").format(frappe.bold(doc.name)),
+			title=_("عرض السعر غير معتمد"),
+		)
+
+
+def _is_blocked(doc, settings):
+	return (
+		settings.enabled
+		and settings.block_print
+		and doc.docstatus == 0
+		and doc.get("custom_approval_status") != STATUS_APPROVED
 	)
+
+
+def _log_unapproved_print(doc):
+	"""Once per user for each version of the quotation; the print preview renders it too."""
+	content = _("طُبع عرض السعر قبل اعتماده (الحالة: {0})").format(doc.get("custom_approval_status") or STATUS_DRAFT)
+	if frappe.db.exists(
+		"Comment",
+		{
+			"reference_doctype": doc.doctype,
+			"reference_name": doc.name,
+			"comment_type": "Info",
+			"owner": frappe.session.user,
+			"content": content,
+			"creation": (">=", doc.modified),
+		},
+	):
+		return
+	doc.add_comment("Info", content)
+	# The PDF download is a GET request, which Frappe does not commit by itself.
+	frappe.local.flags.commit = True
 
 
 # Actions ------------------------------------------------------------------------------
