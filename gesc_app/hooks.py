@@ -137,6 +137,8 @@ after_migrate = [
 	"gesc_app.gesc_app.project_title.setup",
 	# Quotation fields read by the print formats (quotation_print).
 	"gesc_app.gesc_app.quotation_print.setup",
+	# Sales Invoice fields read by the progress statement print format (sales_invoice_print).
+	"gesc_app.gesc_app.sales_invoice_print.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
