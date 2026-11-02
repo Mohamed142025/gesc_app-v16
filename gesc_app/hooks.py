@@ -143,6 +143,8 @@ after_migrate = [
 	"gesc_app.gesc_app.sales_invoice_print.setup",
 	# The project on a Stock Entry and the installation entry type (stock_entry_project).
 	"gesc_app.gesc_app.stock_entry_project.setup",
+	# The project's team table (project_team).
+	"gesc_app.gesc_app.project_team.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -249,6 +251,8 @@ doc_events = {
 			"gesc_app.gesc_app.project_controls.log_project_exception",
 			"gesc_app.gesc_app.project_utils.create_project_items",
 			"gesc_app.gesc_app.project_title.update_project_title",
+			# The team's users are assigned the project (project_team).
+			"gesc_app.gesc_app.project_team.sync_assignments",
 		],
 	},
 	"Sales Order": {
