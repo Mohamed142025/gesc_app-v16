@@ -3,6 +3,7 @@ import re
 import frappe
 from frappe.model.document import Document
 from frappe.model.naming import make_autoname
+from frappe.utils import strip_html
 
 
 class ItemDescription(Document):
@@ -14,7 +15,7 @@ class ItemDescription(Document):
 		if not self.item_code:
 			frappe.throw("كود الصنف مطلوب لإنشاء التوصيف")
 
-		if not self.description:
+		if not strip_html(self.description or "").strip():
 			frappe.throw("التوصيف مطلوب")
 
 	def autoname(self):

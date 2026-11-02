@@ -16,7 +16,17 @@ and are handled in material_submittal.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, escape_html, flt, get_fullname, get_link_to_form, getdate, now_datetime, nowdate
+from frappe.utils import (
+	cint,
+	escape_html,
+	flt,
+	get_fullname,
+	get_link_to_form,
+	getdate,
+	now_datetime,
+	nowdate,
+	strip_html,
+)
 
 SITE_ENGINEER = "Site Engineer"
 TECHNICAL_OFFICE = "Technical Office"
@@ -449,7 +459,7 @@ def create_material_request(task, quantities=None):
 				"item_code": row.item_code,
 				"item_name": row.item_name,
 				# The description written on the task tells purchasing what exactly to buy.
-				"description": (row.description or "").strip() or item.description or row.item_name,
+				"description": row.description if _has_text(row.description) else item.description or row.item_name,
 				"qty": qty,
 				"uom": uom,
 				"stock_uom": item.stock_uom,
@@ -665,7 +675,7 @@ def _apply_inspection_transition(doc, new_state):
 		missing = [
 			str(row.idx)
 			for row in rows
-			if not cint(row.site_engineer_files) or not (row.description or "").strip()
+			if not cint(row.site_engineer_files) or not _has_text(row.description)
 		]
 		if missing:
 			frappe.throw(
@@ -884,8 +894,13 @@ def _set_item_descriptions(doc):
 		entry = frappe.db.get_value("Item Description", row.item_description, ["item_code", "description"], as_dict=True)
 		if not entry or entry.item_code != row.item_code:
 			frappe.throw(_("التوصيف المختار في البند {0} غير مرتبط بالصنف.").format(row.idx))
-		if not (row.description or "").strip():
+		if not _has_text(row.description):
 			row.description = entry.description
+
+
+def _has_text(html):
+	"""An emptied text editor still holds its paragraph tags."""
+	return bool(strip_html(html or "").strip())
 
 
 def _get_task_quotation(task):

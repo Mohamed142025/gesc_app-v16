@@ -36,14 +36,14 @@
   },
   {
    "fieldname": "description",
-   "fieldtype": "Small Text",
+   "fieldtype": "Text Editor",
    "label": "التوصيف",
    "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-04 00:00:00.000000",
+ "modified": "2026-11-02 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Gesc App",
  "name": "Item Description",
