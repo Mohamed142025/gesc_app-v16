@@ -56,6 +56,8 @@ doctype_js = {
 	"Project Item": "public/js/project_item.js",
 	"Sales Order": ["public/js/sales_order.js", "public/js/sales_order_project.js"],
 	"Delivery Note": "public/js/delivery_note.js",
+	# The project on every item, and an installation's project stock (stock_entry_project).
+	"Stock Entry": "public/js/stock_entry_project.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -139,6 +141,8 @@ after_migrate = [
 	"gesc_app.gesc_app.quotation_print.setup",
 	# Sales Invoice fields read by the progress statement print format (sales_invoice_print).
 	"gesc_app.gesc_app.sales_invoice_print.setup",
+	# The project on a Stock Entry and the installation entry type (stock_entry_project).
+	"gesc_app.gesc_app.stock_entry_project.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.
@@ -206,7 +210,11 @@ doc_events = {
 		"before_validate": "gesc_app.gesc_app.sample_request.sync_purpose",
 	},
 	"Stock Entry": {
-		"before_validate": "gesc_app.gesc_app.sample_request.apply_sample",
+		"before_validate": [
+			"gesc_app.gesc_app.sample_request.apply_sample",
+			# The project on every item; an installation needs one (stock_entry_project).
+			"gesc_app.gesc_app.stock_entry_project.validate",
+		],
 	},
 	"Quotation": {
 		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
