@@ -135,6 +135,8 @@ after_migrate = [
 	"gesc_app.gesc_app.project_warehouse.setup",
 	# The project's name next to every project field (project_title).
 	"gesc_app.gesc_app.project_title.setup",
+	# Quotation fields read by the print formats (quotation_print).
+	"gesc_app.gesc_app.quotation_print.setup",
 ]
 
 # Private comments: per-user timeline items and the enabled document types at login.

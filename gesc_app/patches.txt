@@ -7,3 +7,4 @@
 gesc_app.patches.v16_0.move_item_files_to_table
 gesc_app.patches.v16_0.copy_task_attachments_to_material_requests
 gesc_app.patches.v16_0.item_descriptions_to_html
+gesc_app.patches.v16_0.print_existing_quotation_attachments

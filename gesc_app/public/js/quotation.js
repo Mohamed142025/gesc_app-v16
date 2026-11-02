@@ -1,4 +1,11 @@
 frappe.ui.form.on("Quotation", {
+	setup(frm) {
+		// An attachment belongs to one of this quotation's items.
+		frm.set_query("item_code", "custom_attachments", (doc) => ({
+			filters: { name: ["in", (doc.items || []).map((d) => d.item_code).filter(Boolean)] },
+		}));
+	},
+
 	refresh(frm) {
 		gesc_format_item_attachments(frm);
 
