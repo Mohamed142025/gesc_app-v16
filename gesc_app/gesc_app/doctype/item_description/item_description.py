@@ -2,7 +2,7 @@ import re
 
 import frappe
 from frappe.model.document import Document
-from frappe.model.naming import make_autoname
+from frappe.model.naming import getseries
 from frappe.utils import strip_html
 
 
@@ -19,15 +19,10 @@ class ItemDescription(Document):
 			frappe.throw("التوصيف مطلوب")
 
 	def autoname(self):
-		sequence = make_autoname("ITEM-DESCRIPTION-.###")
-		sequence = sequence.rsplit("-", 1)[-1]
-		self.name = "-".join(
-			[
-				self._name_part(self.description_name),
-				self._name_part(self.item_name),
-				sequence,
-			]
-		)
+		"""The name and item, numbered 1, 2, 3… among descriptions of the same name."""
+		base = f"{self._name_part(self.description_name)}-{self._name_part(self.item_name)}"
+		# A Series key holds 100 characters at most.
+		self.name = f"{base}-{getseries(base[:100], 1)}"
 
 	@staticmethod
 	def _name_part(value):
