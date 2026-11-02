@@ -54,13 +54,13 @@
     "width": "Half"
    }
   ],
-  "dashboard_name": "Project",
+  "dashboard_name": "GESC Projects",
   "docstatus": 0,
   "doctype": "Dashboard",
   "is_default": 0,
-  "is_standard": 1,
+  "is_standard": 0,
   "modified": "2026-09-12 02:02:44.164550",
   "module": "Projects",
-  "name": "Project"
+  "name": "GESC Projects"
  }
 ]

@@ -404,7 +404,7 @@ fixtures = [
 	},
 	{
 		"doctype": "Dashboard",
-		"filters": [["name", "=", "Project"]],
+		"filters": [["name", "=", "GESC Projects"]],
 	},
 	{
 		"doctype": "Translation",
