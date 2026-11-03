@@ -147,6 +147,8 @@ after_migrate = [
 	"gesc_app.gesc_app.project_team.setup",
 	# Employee data: sensitive fields for HR, check-ins created by employees (access_guard).
 	"gesc_app.gesc_app.access_guard.setup",
+	# Items followed without supply/installation weights (sales_order_progress).
+	"gesc_app.gesc_app.sales_order_progress.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
@@ -280,6 +282,8 @@ doc_events = {
 		"validate": [
 			"gesc_app.gesc_app.sales_order_utils.validate_contract_relation",
 			"gesc_app.gesc_app.project_controls.set_required_advance",
+			# Supply % + installation % = 100 on every item (sales_order_progress).
+			"gesc_app.gesc_app.sales_order_progress.validate_weights",
 		],
 		"before_submit": "gesc_app.gesc_app.project_controls.validate_sales_order_advance",
 		"before_update_after_submit": "gesc_app.gesc_app.project_controls.check_advance_change_after_submit",
