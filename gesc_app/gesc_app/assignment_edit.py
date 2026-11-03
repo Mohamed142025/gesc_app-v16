@@ -2,7 +2,7 @@
 
 Frappe shares an assigned document with its assignee for reading only, and only when they
 cannot read it already. With "السماح للمعيَّن له بتعديل المستند المسند" on, every open
-assignment (ToDo) shares the document with its assignee for read, write, submit and share,
+assignment (ToDo) made through the system (not a ToDo written straight through the API) shares the document with its assignee for read, write, submit and share,
 whatever their roles already allow. The ToDo keeps a mark that it gave those rights, so they
 are taken back - when the assignment is closed, cancelled or deleted, and no other open
 assignment of theirs on the same document still needs them. Reading stays, as Frappe
@@ -62,10 +62,14 @@ def is_enabled():
 # ToDo hooks -----------------------------------------------------------------------------
 
 
-def sync_edit_share(todo, method=None):
+def sync_edit_share(todo, method=None, trusted=False):
+	"""Only an assignment made through the system (Assign To, assignment rules, workflows and
+	the apps' own code, which insert the ToDo with ignore_permissions after checking the
+	assigner) gives the rights: a ToDo written straight through the API does not."""
 	if not (todo.reference_type and todo.reference_name and todo.allocated_to):
 		return
-	if todo.status == "Open" and not todo.get(MARK) and is_enabled():
+	trusted = trusted or todo.flags.ignore_permissions
+	if todo.status == "Open" and not todo.get(MARK) and is_enabled() and trusted:
 		if _grant(todo):
 			todo.db_set(MARK, 1, update_modified=False)
 	elif todo.status != "Open" and todo.get(MARK):
@@ -107,7 +111,7 @@ def apply_setting(settings, method=None):
 			pluck="name",
 		)
 		for name in todos:
-			sync_edit_share(frappe.get_doc("ToDo", name))
+			sync_edit_share(frappe.get_doc("ToDo", name), trusted=True)
 	else:
 		for name in frappe.get_all("ToDo", filters={MARK: 1}, pluck="name"):
 			todo = frappe.get_doc("ToDo", name)
@@ -129,7 +133,7 @@ def backfill():
 		todo = frappe.get_doc("ToDo", name)
 		if todo.get(MARK):
 			todo.db_set(MARK, 0, update_modified=False)
-		sync_edit_share(todo)
+		sync_edit_share(todo, trusted=True)
 		count += 1
 	return count
 

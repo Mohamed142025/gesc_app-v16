@@ -379,6 +379,13 @@ def _create_task_quotation(task):
 	return quotation.name
 
 
+def validate_quotation_task(doc, method=None):
+	"""Quotation validate: its task (read only on the form, not on the API) is one the user
+	can open, as submitting the Quotation completes it."""
+	if doc.get("custom_task") and (doc.is_new() or doc.has_value_changed("custom_task")):
+		frappe.get_doc("Task", doc.custom_task).check_permission("read")
+
+
 def link_quotation_to_task(doc, method=None):
 	"""Point the task at its Quotation, so the Quotation lists the task in its connections."""
 	if not doc.get("custom_task") or doc.docstatus == 2 or doc.get("custom_is_addendum"):

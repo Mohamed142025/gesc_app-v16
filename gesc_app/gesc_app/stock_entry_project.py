@@ -56,6 +56,7 @@ def validate(doc, method=None):
 def get_project_stock(project):
 	"""The project's warehouse and every item with stock in it, at its full quantity."""
 	frappe.has_permission("Stock Entry", "create", throw=True)
+	frappe.get_doc("Project", project).check_permission("read")
 	warehouse = frappe.db.get_value(
 		"Warehouse", {"custom_is_project_warehouse": 1, "custom_project": project, "disabled": 0}
 	)

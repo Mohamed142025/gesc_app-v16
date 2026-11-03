@@ -142,6 +142,9 @@ def preview_project_item_completion(
 	stale record. The description is given back when the row had none and the
 	item has only one in the project."""
 
+	frappe.has_permission("Delivery Note", "write", throw=True)
+	frappe.get_doc("Project", project).check_permission("read")
+
 	row = frappe._dict(item_code=item_code, custom_item_description=item_description or None, idx=0)
 	project_item_name = resolve_project_item(project, row, strict=False)
 	if not project_item_name:

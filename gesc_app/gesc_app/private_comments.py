@@ -94,7 +94,7 @@ def add(reference_doctype, reference_name, content, recipients=None, reply_to=No
 	).insert(ignore_permissions=True)
 
 	_attach_files(comment, files, to)
-	_share_with(reference_doctype, reference_name, to)
+	_share_with(reference_doctype, reference_name, to, user)
 	_notify(comment, to, is_reply=bool(reply_to))
 	return comment.name
 
@@ -343,13 +343,25 @@ def _attach_files(comment, files, users):
 			add_docshare("File", name, user, read=1, notify=0, flags={"ignore_share_permission": True})
 
 
-def _share_with(doctype, name, users):
-	"""A recipient who cannot open the document gets read access to it."""
+def _share_with(doctype, name, users, author=None):
+	"""A recipient who cannot open the document gets read access to it, when the author
+	may share it; otherwise the author is told who cannot open it."""
 	from frappe.share import add_docshare
 
-	for user in users:
-		if not frappe.has_permission(doctype, "read", doc=name, user=user):
-			add_docshare(doctype, name, user, read=1, flags={"ignore_share_permission": True})
+	without = [u for u in users if not frappe.has_permission(doctype, "read", doc=name, user=u)]
+	if not without:
+		return
+	if author and not frappe.has_permission(doctype, "share", doc=name, user=author):
+		frappe.msgprint(
+			_("وصل التعليق، لكن ليس لديك صلاحية مشاركة المستند، فلا يستطيع فتحه: {0}").format(
+				", ".join(frappe.bold(escape_html(get_fullname(u))) for u in without)
+			),
+			alert=True,
+			indicator="orange",
+		)
+		return
+	for user in without:
+		add_docshare(doctype, name, user, read=1, flags={"ignore_share_permission": True})
 
 
 def _notify(comment, users, is_reply):

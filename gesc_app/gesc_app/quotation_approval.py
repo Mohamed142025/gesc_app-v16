@@ -208,7 +208,7 @@ def request_approval(quotation):
 
 	settings = get_settings()
 	description = _("مطلوب اعتماد عرض السعر {0} للعميل {1} بإجمالي {2}.").format(
-		frappe.bold(doc.name), doc.customer_name or doc.party_name, frappe.format(doc.grand_total, {"fieldtype": "Currency", "options": doc.currency})
+		frappe.bold(doc.name), frappe.utils.escape_html(doc.customer_name or doc.party_name), frappe.format(doc.grand_total, {"fieldtype": "Currency", "options": doc.currency})
 	)
 	approvers = _users_with_role(settings.approver_role)
 	for user in approvers:
@@ -242,7 +242,7 @@ def approve(quotation):
 	_notify(
 		doc,
 		_("تم اعتماد عرض السعر {0} بواسطة {1}، ويمكن عمل Submit وإرساله للعميل.").format(
-			frappe.bold(doc.name), get_fullname(frappe.session.user)
+			frappe.bold(doc.name), frappe.utils.escape_html(get_fullname(frappe.session.user))
 		),
 	)
 	return doc
@@ -271,7 +271,7 @@ def reject(quotation, reason):
 	_close_todos(doc, TODO_REQUEST)
 	doc.add_comment("Info", _("رُفض عرض السعر: {0}").format(frappe.utils.escape_html(reason)))
 	message = _("رُفض عرض السعر {0} بواسطة {1}. السبب: {2}").format(
-		frappe.bold(doc.name), get_fullname(frappe.session.user), frappe.utils.escape_html(reason)
+		frappe.bold(doc.name), frappe.utils.escape_html(get_fullname(frappe.session.user)), frappe.utils.escape_html(reason)
 	)
 	_notify(doc, message)
 	for user in _people_to_notify(doc):

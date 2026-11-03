@@ -145,7 +145,25 @@ after_migrate = [
 	"gesc_app.gesc_app.stock_entry_project.setup",
 	# The project's team table (project_team).
 	"gesc_app.gesc_app.project_team.setup",
+	# Employee data: sensitive fields for HR, check-ins created by employees (access_guard).
+	"gesc_app.gesc_app.access_guard.setup",
 ]
+
+# Employee data each employee sees: their own, or their team's (access_guard).
+permission_query_conditions = {
+	"Salary Slip": "gesc_app.gesc_app.access_guard.salary_slip_condition",
+	"Salary Structure Assignment": "gesc_app.gesc_app.access_guard.salary_structure_assignment_condition",
+	"Attendance": "gesc_app.gesc_app.access_guard.attendance_condition",
+	"Employee Checkin": "gesc_app.gesc_app.access_guard.employee_checkin_condition",
+	"PWA Notification": "gesc_app.gesc_app.access_guard.notification_condition",
+}
+has_permission = {
+	"Salary Slip": "gesc_app.gesc_app.access_guard.has_employee_permission",
+	"Salary Structure Assignment": "gesc_app.gesc_app.access_guard.has_employee_permission",
+	"Attendance": "gesc_app.gesc_app.access_guard.has_employee_permission",
+	"Employee Checkin": "gesc_app.gesc_app.access_guard.has_employee_permission",
+	"PWA Notification": "gesc_app.gesc_app.access_guard.has_notification_permission",
+}
 
 # Private comments: per-user timeline items and the enabled document types at login.
 additional_timeline_content = {"*": ["gesc_app.gesc_app.private_comments.timeline"]}
@@ -224,6 +242,7 @@ doc_events = {
 			"gesc_app.gesc_app.project_controls.set_required_advance",
 			"gesc_app.gesc_app.quotation_approval.validate",
 			"gesc_app.gesc_app.quotation_addendum.validate",
+			"gesc_app.gesc_app.task_execution.validate_quotation_task",
 		],
 		"on_update": [
 			"gesc_app.gesc_app.task_execution.link_quotation_to_task",
@@ -272,6 +291,15 @@ doc_events = {
 		"on_submit": "gesc_app.gesc_app.delivery_note_utils.sync_project_item_progress_on_submit",
 		"on_cancel": "gesc_app.gesc_app.delivery_note_utils.sync_project_item_progress_on_cancel",
 	},
+	# Guards on employee data, whatever the app or the API sends (access_guard).
+	"Employee Checkin": {"before_insert": "gesc_app.gesc_app.access_guard.guard_checkin"},
+	"Employee Advance": {
+		"validate": "gesc_app.gesc_app.access_guard.strip_draft_schedule",
+		"before_submit": "gesc_app.gesc_app.access_guard.strip_draft_schedule",
+		"before_update_after_submit": "gesc_app.gesc_app.access_guard.guard_schedule",
+	},
+	"Permission Request": {"validate": "gesc_app.gesc_app.access_guard.no_self_decision"},
+	"Overtime Request": {"validate": "gesc_app.gesc_app.access_guard.no_self_decision"},
 }
 
 # Scheduled Tasks
@@ -314,6 +342,10 @@ doc_events = {
 override_whitelisted_methods = {
 	# A sample request's Stock Entry is a sample issue for its customer (sample_request).
 	"erpnext.stock.doctype.material_request.material_request.make_stock_entry": "gesc_app.gesc_app.sample_request.make_stock_entry",
+	# The employee app's push subscriptions, error log and team card, guarded (access_guard).
+	"ms_hrms.web_push.subscribe": "gesc_app.gesc_app.access_guard.subscribe",
+	"ms_hrms.web_push.log_client_error": "gesc_app.gesc_app.access_guard.log_client_error",
+	"ms_hrms.pwa_api.get_team_today": "gesc_app.gesc_app.access_guard.get_team_today",
 }
 #
 # each overriding function accepts a `data` argument;

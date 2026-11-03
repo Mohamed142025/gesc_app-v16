@@ -46,7 +46,8 @@ def sync_assignments(doc, method=None):
 	"""on_update of Project: the team's users are assigned the project."""
 	users = _team_users(doc)
 	before = doc.get_doc_before_save()
-	removed = (_team_users(before) if before else set()) - users
+	before_users = _team_users(before) if before else set()
+	removed = before_users - users
 	assigned = set(
 		frappe.get_all(
 			"ToDo",
@@ -54,7 +55,8 @@ def sync_assignments(doc, method=None):
 			pluck="allocated_to",
 		)
 	)
-	for user in sorted(users - assigned):
+	# Members just added: one who closed their assignment is not assigned again on every save.
+	for user in sorted((users - before_users) - assigned):
 		_add(
 			{"assign_to": [user], "doctype": "Project", "name": doc.name, "description": doc.project_name},
 			ignore_permissions=True,

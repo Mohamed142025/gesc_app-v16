@@ -139,6 +139,8 @@ def acknowledge(todo, method=None):
 		return
 	if frappe.session.user != todo.allocated_to:
 		return
+	if frappe.db.get_value("Task Submittal Acknowledgement", todo.custom_submittal_ack, "user") != todo.allocated_to:
+		return
 	frappe.db.set_value(
 		"Task Submittal Acknowledgement",
 		todo.custom_submittal_ack,
