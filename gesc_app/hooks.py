@@ -58,6 +58,8 @@ doctype_js = {
 	"Delivery Note": "public/js/delivery_note.js",
 	# The project on every item, and an installation's project stock (stock_entry_project).
 	"Stock Entry": "public/js/stock_entry_project.js",
+	# Who an announcement goes to (hr_announcement_audience).
+	"HR Announcement": "public/js/hr_announcement_audience.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -149,6 +151,8 @@ after_migrate = [
 	"gesc_app.gesc_app.access_guard.setup",
 	# Items followed without supply/installation weights (sales_order_progress).
 	"gesc_app.gesc_app.sales_order_progress.setup",
+	# HR Announcement for selected departments, designations, grades or employees.
+	"gesc_app.gesc_app.hr_announcement_audience.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
@@ -339,6 +343,10 @@ doc_events = {
 # extend_doctype_class = {
 # 	"Task": "gesc_app.custom.task.CustomTaskMixin"
 # }
+extend_doctype_class = {
+	# Sent to its selected audience (hr_announcement_audience).
+	"HR Announcement": "gesc_app.gesc_app.hr_announcement_audience.AudienceMixin",
+}
 
 # Overriding Methods
 # ------------------------------

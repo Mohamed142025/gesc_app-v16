@@ -128,3 +128,30 @@ msgstr "إظهار المشاريع بدون عقود"
 
 msgid "Projects Without Contracts Only"
 msgstr "المشاريع بدون عقود فقط"
+
+msgid "Selected Employees"
+msgstr "موظفون محددون"
+
+msgid "Departments"
+msgstr "الأقسام"
+
+msgid "Designations"
+msgstr "المسميات الوظيفية"
+
+msgid "Grades"
+msgstr "الدرجات"
+
+msgid "Employees"
+msgstr "الموظفون"
+
+msgid "Preview Recipients"
+msgstr "معاينة المستلمين"
+
+msgid "{0} employees will receive it"
+msgstr "سيصل الإعلان إلى {0} موظف"
+
+msgid "No active employee with a user matches the announcement's audience."
+msgstr "لا يوجد موظف نشط له مستخدم يطابق جمهور الإعلان."
+
+msgid "Choose who the announcement is for: departments, designations, grades or employees."
+msgstr "حدد لمن الإعلان: أقسام أو مسميات وظيفية أو درجات أو موظفون."
