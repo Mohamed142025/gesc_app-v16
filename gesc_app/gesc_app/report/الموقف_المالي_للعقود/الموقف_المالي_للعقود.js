@@ -40,6 +40,14 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 		{ fieldname: "contract_to_date", label: __("تاريخ العقد إلى"), fieldtype: "Date" },
 		{ fieldname: "statement_from_date", label: __("تاريخ المستخلص من"), fieldtype: "Date" },
 		{ fieldname: "statement_to_date", label: __("تاريخ المستخلص إلى"), fieldtype: "Date" },
+		{ fieldname: "unpaid_only", label: __("المستخلصات غير المسددة فقط"), fieldtype: "Check" },
+		{
+			// Only how the tree is shown: no new data.
+			fieldname: "show_statements",
+			label: __("عرض المستخلصات"),
+			fieldtype: "Check",
+			on_change: () => show_statements(frappe.query_report.datatable),
+		},
 	],
 
 	// Customer > project > contract > addendum > statement, opened one level at a time.
@@ -47,6 +55,8 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 	name_field: "id",
 	parent_field: "parent_id",
 	initial_depth: 1,
+
+	after_datatable_render: show_statements,
 
 	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
@@ -59,3 +69,10 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 		return value;
 	},
 };
+
+// "عرض المستخلصات": every level opened, down to the statements; unchecked, as the report opens.
+function show_statements(datatable) {
+	if (!datatable) return;
+	if (frappe.query_report.get_filter_value("show_statements")) datatable.rowmanager.expandAllNodes();
+	else datatable.rowmanager.setTreeDepth(frappe.query_reports["الموقف المالي للعقود"].initial_depth);
+}

@@ -13,7 +13,8 @@ each project with their addenda, and the statements (Sales Invoices) of each con
 - The project's cost: its actual expenses, from the general ledger (each expense once,
   whatever document it came from).
 
-The statement dates filter the statements; the contracts' own figures (value, down
+The statement dates filter the statements, and so does "unpaid only" (those with
+something left to collect, and the contracts they are on); the contracts' own figures (value, down
 payment, paid, balance) are always whole.
 """
 
@@ -38,6 +39,10 @@ def execute(filters=None):
 		return get_columns(), [], None, None, None
 	statements = get_statements(contracts, filters)
 	costs = get_costs(filters.company, {c.project for c in contracts.values() if c.project})
+	if filters.unpaid_only:
+		contracts = with_unpaid(contracts, statements)
+		if not contracts:
+			return get_columns(), [], None, None, None
 	data, totals, projects = build_tree(contracts, statements, costs, filters.company)
 	return get_columns(), data, None, get_chart(projects), get_summary(totals)
 
@@ -169,10 +174,30 @@ def get_statements(contracts, filters):
 			recovered=after - before,
 			due=value - (after - before),
 			collected=received,
-			hidden=(from_date and getdate(row.posting_date) < from_date) or (to_date and getdate(row.posting_date) > to_date),
+			hidden=bool(
+				(from_date and getdate(row.posting_date) < from_date)
+				or (to_date and getdate(row.posting_date) > to_date)
+				or (filters.unpaid_only and value - (after - before) - received < 0.005)
+			),
 		)
 		statements[row.sales_order].append(row)
 	return statements
+
+
+def with_unpaid(contracts, statements):
+	"""The main contracts with an unpaid statement on them or on an addendum, and their
+	addenda."""
+	def unpaid(name):
+		return any(not statement.hidden for statement in statements[name])
+
+	keep = {
+		name
+		for name, contract in contracts.items()
+		if not contract.custom_addendum_to and (unpaid(name) or any(unpaid(a) for a in contract.addenda))
+	}
+	return {
+		name: contract for name, contract in contracts.items() if name in keep or contract.custom_addendum_to in keep
+	}
 
 
 def get_collections(invoices):
@@ -377,6 +402,7 @@ def get_summary(totals):
 		card("الدفعات المقدمة المدفوعة", totals.advance_paid, "Green"),
 		card("المستخلصات", totals.invoiced),
 		card("المحصل من المستخلصات", totals.collected, "Green"),
+		card("المتبقي من المستخلصات", totals.invoice_balance, "Orange"),
 		card("المستحق على العقود", totals.contract_balance, "Orange"),
 		card("تكلفة المشاريع", totals.cost, "Red"),
 		card("الهامش", totals.margin, "Green" if flt(totals.margin) >= 0 else "Red"),
