@@ -231,6 +231,10 @@ doc_events = {
 	"System Settings": {
 		"on_update": "gesc_app.gesc_app.assignment_edit.apply_setting",
 	},
+	# The system's notifications pushed to their user's devices too (system_push).
+	"Notification Log": {
+		"after_insert": "gesc_app.gesc_app.system_push.on_notification_log",
+	},
 	# Sample requests: a Material Issue for a customer (sample_request).
 	"Material Request": {
 		"before_validate": "gesc_app.gesc_app.sample_request.sync_purpose",
