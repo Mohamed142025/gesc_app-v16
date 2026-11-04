@@ -96,7 +96,7 @@
 			return;
 		}
 
-		if (frm.perm[0]?.write) {
+		if (frm.perm[0]?.write && settings.can_request) {
 			frm.page.set_primary_action(__("طلب اعتماد"), () => request(frm));
 		}
 		if (settings.is_approver) {

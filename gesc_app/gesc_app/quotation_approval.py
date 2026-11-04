@@ -41,6 +41,7 @@ def get_settings():
 	return frappe._dict(
 		enabled=bool(get("custom_quotation_approval_enabled")),
 		approver_role=get("custom_quotation_approver_role"),
+		request_role=get("custom_quotation_request_role"),
 		request_notify_role=get("custom_quotation_request_notify_role"),
 		block_print=bool(get("custom_quotation_block_unapproved_print")),
 		unapproved_print_role=get("custom_quotation_unapproved_print_role"),
@@ -50,6 +51,12 @@ def get_settings():
 def is_approver(settings=None):
 	settings = settings or get_settings()
 	return bool(settings.approver_role) and settings.approver_role in frappe.get_roles()
+
+
+def can_request(settings=None):
+	"""The request role, when one is set, asks for approval; otherwise anyone who edits."""
+	settings = settings or get_settings()
+	return not settings.request_role or settings.request_role in frappe.get_roles()
 
 
 # Hooks --------------------------------------------------------------------------------
@@ -182,6 +189,7 @@ def get_approval_settings():
 		"enabled": settings.enabled,
 		"approver_role": settings.approver_role,
 		"is_approver": is_approver(settings),
+		"can_request": can_request(settings),
 		"block_print": settings.block_print,
 	}
 
@@ -190,6 +198,12 @@ def get_approval_settings():
 def request_approval(quotation):
 	doc = _get_draft(quotation)
 	doc.check_permission("write")
+	settings = get_settings()
+	if not can_request(settings):
+		frappe.throw(
+			_("طلب اعتماد عروض الأسعار متاح لدور {0} فقط.").format(frappe.bold(_(settings.request_role))),
+			frappe.PermissionError,
+		)
 	if doc.custom_approval_status in (STATUS_PENDING, STATUS_APPROVED):
 		frappe.throw(_("عرض السعر {0} بالفعل.").format(doc.custom_approval_status))
 
@@ -206,7 +220,6 @@ def request_approval(quotation):
 	_save(doc)
 	_close_todos(doc, TODO_REWORK)
 
-	settings = get_settings()
 	description = _("مطلوب اعتماد عرض السعر {0} للعميل {1} بإجمالي {2}.").format(
 		frappe.bold(doc.name), frappe.utils.escape_html(doc.customer_name or doc.party_name), frappe.format(doc.grand_total, {"fieldtype": "Currency", "options": doc.currency})
 	)
