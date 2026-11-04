@@ -1,0 +1,124 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: GESC App VERSION\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Particulars"
+msgstr "البيان"
+
+msgid "Row Type"
+msgstr "النوع"
+
+msgid "Reference"
+msgstr "المستند"
+
+msgid "Entry Date"
+msgstr "التاريخ"
+
+msgid "Contract Value"
+msgstr "قيمة العقد"
+
+msgid "Down Payment %"
+msgstr "نسبة الدفعة المقدمة"
+
+msgid "Down Payment Paid"
+msgstr "الدفعة المقدمة المدفوعة"
+
+msgid "Progress Statement Value"
+msgstr "قيمة المستخلص"
+
+msgid "Recovered from Down Payment"
+msgstr "المخصوم من الدفعة المقدمة"
+
+msgid "Balance Due"
+msgstr "الرصيد المستحق"
+
+msgid "Collected on Progress Statement"
+msgstr "المحصل من المستخلص"
+
+msgid "Remaining on Progress Statement"
+msgstr "المتبقي من المستخلص"
+
+msgid "Total Paid on Contract"
+msgstr "إجمالي المدفوع على العقد"
+
+msgid "Balance Due on Contract"
+msgstr "الرصيد المستحق على العقد"
+
+msgid "Project Cost"
+msgstr "تكلفة المشروع"
+
+msgid "Contract Addendum"
+msgstr "ملحق"
+
+msgid "Progress Statement"
+msgstr "مستخلص"
+
+msgid "Statement Return"
+msgstr "مرتجع"
+
+msgid "No Project"
+msgstr "بدون مشروع"
+
+msgid "Contract Values"
+msgstr "قيمة العقود"
+
+msgid "Progress Statements"
+msgstr "المستخلصات"
+
+msgid "Project Costs"
+msgstr "التكلفة"
+
+msgid "No. of Customers"
+msgstr "عدد العملاء"
+
+msgid "No. of Projects"
+msgstr "عدد المشاريع"
+
+msgid "No. of Contracts"
+msgstr "عدد العقود"
+
+msgid "No. of Progress Statements"
+msgstr "عدد المستخلصات"
+
+msgid "Down Payments Paid"
+msgstr "الدفعات المقدمة المدفوعة"
+
+msgid "Collected on Progress Statements"
+msgstr "المحصل من المستخلصات"
+
+msgid "Remaining on Progress Statements"
+msgstr "المتبقي من المستخلصات"
+
+msgid "Balance Due on Contracts"
+msgstr "المستحق على العقود"
+
+msgid "Projects Cost"
+msgstr "تكلفة المشاريع"
+
+msgid "Contract From Date"
+msgstr "تاريخ العقد من"
+
+msgid "Contract To Date"
+msgstr "تاريخ العقد إلى"
+
+msgid "Progress Statement From Date"
+msgstr "تاريخ المستخلص من"
+
+msgid "Progress Statement To Date"
+msgstr "تاريخ المستخلص إلى"
+
+msgid "Unpaid Progress Statements Only"
+msgstr "المستخلصات غير المسددة فقط"
+
+msgid "Show Progress Statements"
+msgstr "عرض المستخلصات"
+
+msgid "Include Projects Without Contracts"
+msgstr "إظهار المشاريع بدون عقود"
+
+msgid "Projects Without Contracts Only"
+msgstr "المشاريع بدون عقود فقط"

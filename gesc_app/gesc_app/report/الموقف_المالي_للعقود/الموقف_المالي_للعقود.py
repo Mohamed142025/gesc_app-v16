@@ -16,6 +16,11 @@ each project with their addenda, and the statements (Sales Invoices) of each con
 The statement dates filter the statements, and so does "unpaid only" (those with
 something left to collect, and the contracts they are on); the contracts' own figures (value, down
 payment, paid, balance) are always whole.
+
+"Include projects without contracts": the statements of a project not made from a contract
+(no Sales Order on their items), under the project with no contract; they have no down
+payment, and the project's margin is then on what was invoiced. "Projects without
+contracts only": those alone.
 """
 
 import frappe
@@ -24,7 +29,6 @@ from frappe.utils import flt, getdate
 
 ADVANCE_PERCENTAGE = "نسبة"
 ADVANCE_AMOUNT = "قيمة"
-NO_PROJECT = "بدون مشروع"
 
 # The amounts, and which rows have them.
 CONTRACT_FIGURES = ("contract_value", "advance_paid", "total_paid", "contract_balance")
@@ -34,40 +38,40 @@ PROJECT_FIGURES = ("cost", "margin")
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
-	contracts = get_contracts(filters)
-	if not contracts:
-		return get_columns(), [], None, None, None
-	statements = get_statements(contracts, filters)
-	costs = get_costs(filters.company, {c.project for c in contracts.values() if c.project})
+	contracts = {} if filters.without_contracts_only else get_contracts(filters)
+	statements = get_statements(contracts, filters) if contracts else {}
 	if filters.unpaid_only:
 		contracts = with_unpaid(contracts, statements)
-		if not contracts:
-			return get_columns(), [], None, None, None
-	data, totals, projects = build_tree(contracts, statements, costs, filters.company)
-	return get_columns(), data, None, get_chart(projects), get_summary(totals)
+	loose = get_uncontracted(filters)
+	if not contracts and not loose:
+		return get_columns(), [], None, None, None
+	project_names = {c.project for c in contracts.values() if c.project} | {project for _customer, project in loose}
+	costs = get_costs(filters.company, project_names)
+	data, totals, projects = build_tree(contracts, statements, loose, costs, filters.company)
+	return get_columns(), data, None, get_chart(projects), get_summary(totals, data)
 
 
 def get_columns():
 	currency = {"fieldtype": "Currency", "options": "currency", "width": 140}
 	return [
-		{"fieldname": "label", "label": _("البيان"), "fieldtype": "Data", "width": 300},
-		{"fieldname": "row_type", "label": _("النوع"), "fieldtype": "Data", "width": 90},
-		{"fieldname": "reference_doctype", "label": _("نوع المستند"), "fieldtype": "Data", "hidden": 1},
-		{"fieldname": "reference", "label": _("المستند"), "fieldtype": "Dynamic Link", "options": "reference_doctype", "width": 170},
-		{"fieldname": "date", "label": _("التاريخ"), "fieldtype": "Date", "width": 100},
-		{"fieldname": "contract_value", "label": _("قيمة العقد"), **currency},
-		{"fieldname": "advance_percentage", "label": _("نسبة الدفعة المقدمة"), "fieldtype": "Percent", "width": 110},
-		{"fieldname": "advance_paid", "label": _("الدفعة المقدمة المدفوعة"), **currency},
-		{"fieldname": "invoiced", "label": _("قيمة المستخلص"), **currency},
-		{"fieldname": "recovered", "label": _("المخصوم من الدفعة المقدمة"), **currency},
-		{"fieldname": "due", "label": _("الرصيد المستحق"), **currency},
-		{"fieldname": "collected", "label": _("المحصل من المستخلص"), **currency},
-		{"fieldname": "invoice_balance", "label": _("المتبقي من المستخلص"), **currency},
-		{"fieldname": "total_paid", "label": _("إجمالي المدفوع على العقد"), **currency},
-		{"fieldname": "contract_balance", "label": _("الرصيد المستحق على العقد"), **currency},
-		{"fieldname": "cost", "label": _("تكلفة المشروع"), **currency},
-		{"fieldname": "margin", "label": _("الهامش"), **currency},
-		{"fieldname": "currency", "label": _("العملة"), "fieldtype": "Link", "options": "Currency", "hidden": 1},
+		{"fieldname": "label", "label": _("Particulars"), "fieldtype": "Data", "width": 300},
+		{"fieldname": "row_type", "label": _("Row Type"), "fieldtype": "Data", "width": 90},
+		{"fieldname": "reference_doctype", "label": _("Document Type"), "fieldtype": "Data", "hidden": 1},
+		{"fieldname": "reference", "label": _("Reference"), "fieldtype": "Dynamic Link", "options": "reference_doctype", "width": 170},
+		{"fieldname": "date", "label": _("Entry Date"), "fieldtype": "Date", "width": 100},
+		{"fieldname": "contract_value", "label": _("Contract Value"), **currency},
+		{"fieldname": "advance_percentage", "label": _("Down Payment %"), "fieldtype": "Percent", "width": 110},
+		{"fieldname": "advance_paid", "label": _("Down Payment Paid"), **currency},
+		{"fieldname": "invoiced", "label": _("Progress Statement Value"), **currency},
+		{"fieldname": "recovered", "label": _("Recovered from Down Payment"), **currency},
+		{"fieldname": "due", "label": _("Balance Due"), **currency},
+		{"fieldname": "collected", "label": _("Collected on Progress Statement"), **currency},
+		{"fieldname": "invoice_balance", "label": _("Remaining on Progress Statement"), **currency},
+		{"fieldname": "total_paid", "label": _("Total Paid on Contract"), **currency},
+		{"fieldname": "contract_balance", "label": _("Balance Due on Contract"), **currency},
+		{"fieldname": "cost", "label": _("Project Cost"), **currency},
+		{"fieldname": "margin", "label": _("Margin"), **currency},
+		{"fieldname": "currency", "label": _("Currency"), "fieldtype": "Link", "options": "Currency", "hidden": 1},
 	]
 
 
@@ -184,6 +188,52 @@ def get_statements(contracts, filters):
 	return statements
 
 
+def get_uncontracted(filters):
+	"""The visible statements of projects with no contract on them, by (customer, project).
+	Not when a contract or contract dates are chosen: they have no contract."""
+	if not (filters.without_contracts or filters.without_contracts_only) or filters.sales_order or filters.contract_from_date or filters.contract_to_date:
+		return {}
+	conditions = ["invoice.docstatus = 1", "invoice.company = %(company)s", "ifnull(item.sales_order, '') = ''"]
+	project = "coalesce(nullif(item.project, ''), invoice.project)"
+	conditions.append(f"ifnull({project}, '') != ''")
+	if filters.customer:
+		conditions.append("invoice.customer = %(customer)s")
+	if filters.project:
+		conditions.append(f"{project} = %(project)s")
+	rows = frappe.db.sql(
+		f"""
+		select {project} as project, invoice.customer, invoice.customer_name, invoice.name, invoice.posting_date,
+			invoice.custom_statement_title, invoice.is_return, invoice.base_grand_total, invoice.base_net_total,
+			sum(item.base_net_amount) as net
+		from `tabSales Invoice Item` item
+		inner join `tabSales Invoice` invoice on invoice.name = item.parent
+		where {' and '.join(conditions)}
+		group by {project}, invoice.name
+		order by invoice.posting_date, invoice.name
+		""",
+		filters,
+		as_dict=True,
+	)
+	collected = get_collections({row.name for row in rows})
+	from_date = getdate(filters.statement_from_date) if filters.statement_from_date else None
+	to_date = getdate(filters.statement_to_date) if filters.statement_to_date else None
+
+	loose = {}
+	for row in rows:
+		share = flt(row.net) / flt(row.base_net_total) if flt(row.base_net_total) else 1
+		value = flt(row.base_grand_total) * share
+		received = sum(collected.get(row.name, {}).values()) * share
+		if (
+			(from_date and getdate(row.posting_date) < from_date)
+			or (to_date and getdate(row.posting_date) > to_date)
+			or (filters.unpaid_only and value - received < 0.005)
+		):
+			continue
+		row.update(value=value, recovered=0, due=value, collected=received)
+		loose.setdefault((row.customer, row.project), []).append(row)
+	return loose
+
+
 def with_unpaid(contracts, statements):
 	"""The main contracts with an unpaid statement on them or on an addendum, and their
 	addenda."""
@@ -262,7 +312,7 @@ def get_costs(company, projects):
 # The tree
 
 
-def build_tree(contracts, statements, costs, company):
+def build_tree(contracts, statements, loose, costs, company):
 	currency = frappe.get_cached_value("Company", company, "default_currency")
 	customers = {}
 	for contract in contracts.values():
@@ -270,24 +320,34 @@ def build_tree(contracts, statements, costs, company):
 			continue
 		customer = customers.setdefault(contract.customer, {"name": contract.customer_name or contract.customer, "projects": {}})
 		customer["projects"].setdefault(contract.project or "", []).append(contract)
+	for (customer_id, project), rows in loose.items():
+		customer = customers.setdefault(customer_id, {"name": rows[0].customer_name or customer_id, "projects": {}})
+		customer["projects"].setdefault(project, [])
 
 	data, projects = [], []
 	totals = frappe._dict()
 	for customer_id, customer in sorted(customers.items(), key=lambda item: item[1]["name"]):
-		customer_row = row(f"c:{customer_id}", None, 0, customer["name"], "عميل", "Customer", customer_id)
+		customer_row = row(f"c:{customer_id}", None, 0, customer["name"], "Customer", "Customer", customer_id)
 		data.append(customer_row)
 		for project, members in customer["projects"].items():
 			project_row = row(
-				f"p:{customer_id}:{project}", customer_row["id"], 1, project_title(project, members), "مشروع",
+				f"p:{customer_id}:{project}", customer_row["id"], 1, project_title(project, members), "Project",
 				"Project" if project else None, project or None,
 			)
 			data.append(project_row)
 			for contract in members:
 				contract_row = contract_rows(contract, contracts, statements, project_row["id"], data)
 				add(project_row, contract_row, CONTRACT_FIGURES + STATEMENT_FIGURES)
+			for statement in loose.get((customer_id, project), []):
+				line = statement_row(statement, f"i:{project}:{statement.name}", project_row["id"], 2)
+				data.append(line)
+				add(project_row, line, STATEMENT_FIGURES)
+				project_row["total_paid"] += statement.collected
 			if project:
 				project_row["cost"] = flt(costs.get(project))
-				project_row["margin"] = project_row["contract_value"] - project_row["cost"]
+				# With no contract, on what was invoiced.
+				income = project_row["contract_value"] or project_row["invoiced"]
+				project_row["margin"] = income - project_row["cost"]
 				projects.append(project_row)
 			add(customer_row, project_row, CONTRACT_FIGURES + STATEMENT_FIGURES + PROJECT_FIGURES)
 		add(totals, customer_row, CONTRACT_FIGURES + STATEMENT_FIGURES + PROJECT_FIGURES)
@@ -311,7 +371,7 @@ def contract_rows(contract, contracts, statements, parent, data):
 
 def contract_row(contract, statements, parent, indent, data):
 	entry = row(
-		f"s:{contract.name}", parent, indent, contract.name, "ملحق" if contract.custom_addendum_to else "عقد",
+		f"s:{contract.name}", parent, indent, contract.name, "Contract Addendum" if contract.custom_addendum_to else "Contract",
 		"Sales Order", contract.name, contract.transaction_date,
 	)
 	entry.update(contract_value=contract.value, advance_percentage=contract.percentage, advance_paid=contract.advance)
@@ -321,18 +381,7 @@ def contract_row(contract, statements, parent, indent, data):
 		all_collected += statement.collected
 		if statement.hidden:
 			continue
-		line = row(
-			f"i:{contract.name}:{statement.name}", entry["id"], indent + 1,
-			statement.custom_statement_title or statement.name, "مرتجع" if statement.is_return else "مستخلص",
-			"Sales Invoice", statement.name, statement.posting_date,
-		)
-		line.update(
-			invoiced=statement.value,
-			recovered=statement.recovered,
-			due=statement.due,
-			collected=statement.collected,
-			invoice_balance=statement.due - statement.collected,
-		)
+		line = statement_row(statement, f"i:{contract.name}:{statement.name}", entry["id"], indent + 1)
 		data.append(line)
 		add(entry, line, STATEMENT_FIGURES)
 	# The contract's payments, whatever the statement dates.
@@ -341,13 +390,32 @@ def contract_row(contract, statements, parent, indent, data):
 	return entry
 
 
-def row(id, parent, indent, label, row_type, doctype=None, name=None, date=None):
+def statement_row(statement, id, parent, indent):
+	line = row(
+		id, parent, indent, statement.custom_statement_title or statement.name,
+		"Statement Return" if statement.is_return else "Progress Statement",
+		"Sales Invoice", statement.name, statement.posting_date,
+	)
+	line.update(
+		invoiced=statement.value,
+		recovered=statement.recovered,
+		due=statement.due,
+		collected=statement.collected,
+		invoice_balance=statement.due - statement.collected,
+	)
+	return line
+
+
+def row(id, parent, indent, label, kind, doctype=None, name=None, date=None):
 	return {
 		"id": id,
 		"parent_id": parent,
 		"indent": indent,
 		"label": label,
-		"row_type": row_type,
+		# kind: Customer, Project, Contract, Contract Addendum, Progress Statement or Statement
+		# Return; row_type: shown.
+		"kind": kind,
+		"row_type": _(kind),
 		"reference_doctype": doctype,
 		"reference": name,
 		"date": date,
@@ -362,7 +430,7 @@ def add(to, source, fields):
 
 def project_title(project, contracts):
 	if not project:
-		return NO_PROJECT
+		return _("No Project")
 	title = frappe.db.get_value("Project", project, ["custom_project_name", "project_name"], as_dict=True) or {}
 	return title.get("custom_project_name") or title.get("project_name") or project
 
@@ -378,10 +446,10 @@ def get_chart(projects):
 		"data": {
 			"labels": [p["label"] for p in projects],
 			"datasets": [
-				{"name": _("قيمة العقود"), "values": [flt(p["contract_value"], 2) for p in projects]},
-				{"name": _("المستخلصات"), "values": [flt(p["invoiced"], 2) for p in projects]},
-				{"name": _("المدفوع"), "values": [flt(p["total_paid"], 2) for p in projects]},
-				{"name": _("التكلفة"), "values": [flt(p["cost"], 2) for p in projects]},
+				{"name": _("Contract Values"), "values": [flt(p["contract_value"], 2) for p in projects]},
+				{"name": _("Progress Statements"), "values": [flt(p["invoiced"], 2) for p in projects]},
+				{"name": _("Paid"), "values": [flt(p["total_paid"], 2) for p in projects]},
+				{"name": _("Project Costs"), "values": [flt(p["cost"], 2) for p in projects]},
 			],
 		},
 		"type": "bar",
@@ -391,19 +459,32 @@ def get_chart(projects):
 	}
 
 
-def get_summary(totals):
+def get_summary(totals, data):
 	currency = totals.currency
 
 	def card(label, value, indicator="Blue"):
 		return {"label": _(label), "value": flt(value, 2), "datatype": "Currency", "currency": currency, "indicator": indicator}
 
+	def owing(value):
+		# Frappe colours a card green, red or blue only.
+		return "Red" if flt(value) > 0.005 else "Green"
+
+	def count(label, kind, only_linked=False):
+		# The "No Project" rows group contracts without a project: not a project.
+		value = sum(1 for entry in data if entry["kind"] == kind and (entry["reference"] or not only_linked))
+		return {"label": _(label), "value": value, "datatype": "Int", "indicator": "Grey"}
+
 	return [
-		card("قيمة العقود", totals.contract_value),
-		card("الدفعات المقدمة المدفوعة", totals.advance_paid, "Green"),
-		card("المستخلصات", totals.invoiced),
-		card("المحصل من المستخلصات", totals.collected, "Green"),
-		card("المتبقي من المستخلصات", totals.invoice_balance, "Orange"),
-		card("المستحق على العقود", totals.contract_balance, "Orange"),
-		card("تكلفة المشاريع", totals.cost, "Red"),
-		card("الهامش", totals.margin, "Green" if flt(totals.margin) >= 0 else "Red"),
+		count("No. of Customers", "Customer"),
+		count("No. of Projects", "Project", only_linked=True),
+		count("No. of Contracts", "Contract"),
+		count("No. of Progress Statements", "Progress Statement"),
+		card("Contract Values", totals.contract_value),
+		card("Down Payments Paid", totals.advance_paid, "Green"),
+		card("Progress Statements", totals.invoiced),
+		card("Collected on Progress Statements", totals.collected, "Green"),
+		card("Remaining on Progress Statements", totals.invoice_balance, owing(totals.invoice_balance)),
+		card("Balance Due on Contracts", totals.contract_balance, owing(totals.contract_balance)),
+		card("Projects Cost", totals.cost, "Red"),
+		card("Margin", totals.margin, "Green" if flt(totals.margin) >= 0 else "Red"),
 	]

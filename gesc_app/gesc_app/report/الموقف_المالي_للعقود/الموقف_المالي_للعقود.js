@@ -5,16 +5,16 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 	filters: [
 		{
 			fieldname: "company",
-			label: __("الشركة"),
+			label: __("Company"),
 			fieldtype: "Link",
 			options: "Company",
 			default: frappe.defaults.get_user_default("Company"),
 			reqd: 1,
 		},
-		{ fieldname: "customer", label: __("العميل"), fieldtype: "Link", options: "Customer" },
+		{ fieldname: "customer", label: __("Customer"), fieldtype: "Link", options: "Customer" },
 		{
 			fieldname: "project",
-			label: __("المشروع"),
+			label: __("Project"),
 			fieldtype: "Link",
 			options: "Project",
 			get_query: () => {
@@ -24,7 +24,7 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 		},
 		{
 			fieldname: "sales_order",
-			label: __("العقد"),
+			label: __("Contract"),
 			fieldtype: "Link",
 			options: "Sales Order",
 			get_query: () => {
@@ -36,15 +36,17 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 				return { filters };
 			},
 		},
-		{ fieldname: "contract_from_date", label: __("تاريخ العقد من"), fieldtype: "Date" },
-		{ fieldname: "contract_to_date", label: __("تاريخ العقد إلى"), fieldtype: "Date" },
-		{ fieldname: "statement_from_date", label: __("تاريخ المستخلص من"), fieldtype: "Date" },
-		{ fieldname: "statement_to_date", label: __("تاريخ المستخلص إلى"), fieldtype: "Date" },
-		{ fieldname: "unpaid_only", label: __("المستخلصات غير المسددة فقط"), fieldtype: "Check" },
+		{ fieldname: "contract_from_date", label: __("Contract From Date"), fieldtype: "Date" },
+		{ fieldname: "contract_to_date", label: __("Contract To Date"), fieldtype: "Date" },
+		{ fieldname: "statement_from_date", label: __("Progress Statement From Date"), fieldtype: "Date" },
+		{ fieldname: "statement_to_date", label: __("Progress Statement To Date"), fieldtype: "Date" },
+		{ fieldname: "without_contracts", label: __("Include Projects Without Contracts"), fieldtype: "Check" },
+		{ fieldname: "without_contracts_only", label: __("Projects Without Contracts Only"), fieldtype: "Check" },
+		{ fieldname: "unpaid_only", label: __("Unpaid Progress Statements Only"), fieldtype: "Check" },
 		{
 			// Only how the tree is shown: no new data.
 			fieldname: "show_statements",
-			label: __("عرض المستخلصات"),
+			label: __("Show Progress Statements"),
 			fieldtype: "Check",
 			on_change: () => show_statements(frappe.query_report.datatable),
 		},
@@ -62,7 +64,7 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 		value = default_formatter(value, row, column, data);
 		if (!data) return value;
 		// The levels above the statements in bold, and amounts left owing in red.
-		if (data.indent < 3 && data.row_type !== "ملحق") value = `<b>${value}</b>`;
+		if (["Customer", "Project", "Contract"].includes(data.kind)) value = `<b>${value}</b>`;
 		const owing = ["contract_balance", "invoice_balance"].includes(column.fieldname) && data[column.fieldname] > 0.005;
 		const loss = column.fieldname === "margin" && data.margin < -0.005;
 		if (owing || loss) value = `<span style="color: var(--red-600)">${value}</span>`;
@@ -70,7 +72,7 @@ frappe.query_reports["الموقف المالي للعقود"] = {
 	},
 };
 
-// "عرض المستخلصات": every level opened, down to the statements; unchecked, as the report opens.
+// "Show Progress Statements": every level opened, down to the statements; unchecked, as the report opens.
 function show_statements(datatable) {
 	if (!datatable) return;
 	if (frappe.query_report.get_filter_value("show_statements")) datatable.rowmanager.expandAllNodes();
