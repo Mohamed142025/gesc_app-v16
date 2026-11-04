@@ -18,8 +18,14 @@ msgstr "المستند"
 msgid "Entry Date"
 msgstr "التاريخ"
 
-msgid "Contract Value"
-msgstr "قيمة العقد"
+msgid "Original Contract Value"
+msgstr "قيمة العقد الأصلي"
+
+msgid "Addenda Value"
+msgstr "قيمة الملاحق"
+
+msgid "Total Contract Value"
+msgstr "إجمالي قيمة العقد"
 
 msgid "Down Payment %"
 msgstr "نسبة الدفعة المقدمة"

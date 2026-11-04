@@ -31,7 +31,7 @@ ADVANCE_PERCENTAGE = "نسبة"
 ADVANCE_AMOUNT = "قيمة"
 
 # The amounts, and which rows have them.
-CONTRACT_FIGURES = ("contract_value", "advance_paid", "total_paid", "contract_balance")
+CONTRACT_FIGURES = ("original_value", "addenda_value", "contract_value", "advance_paid", "total_paid", "contract_balance")
 STATEMENT_FIGURES = ("invoiced", "recovered", "due", "collected", "invoice_balance")
 PROJECT_FIGURES = ("cost", "margin")
 
@@ -58,8 +58,10 @@ def get_columns():
 		{"fieldname": "row_type", "label": _("Row Type"), "fieldtype": "Data", "width": 90},
 		{"fieldname": "reference_doctype", "label": _("Document Type"), "fieldtype": "Data", "hidden": 1},
 		{"fieldname": "reference", "label": _("Reference"), "fieldtype": "Dynamic Link", "options": "reference_doctype", "width": 170},
-		{"fieldname": "date", "label": _("Entry Date"), "fieldtype": "Date", "width": 100},
-		{"fieldname": "contract_value", "label": _("Contract Value"), **currency},
+		{"fieldname": "date", "label": _("Entry Date"), "fieldtype": "Date", "width": 110},
+		{"fieldname": "original_value", "label": _("Original Contract Value"), **currency},
+		{"fieldname": "addenda_value", "label": _("Addenda Value"), **currency},
+		{"fieldname": "contract_value", "label": _("Total Contract Value"), **currency},
 		{"fieldname": "advance_percentage", "label": _("Down Payment %"), "fieldtype": "Percent", "width": 110},
 		{"fieldname": "advance_paid", "label": _("Down Payment Paid"), **currency},
 		{"fieldname": "invoiced", "label": _("Progress Statement Value"), **currency},
@@ -374,7 +376,9 @@ def contract_row(contract, statements, parent, indent, data):
 		f"s:{contract.name}", parent, indent, contract.name, "Contract Addendum" if contract.custom_addendum_to else "Contract",
 		"Sales Order", contract.name, contract.transaction_date,
 	)
-	entry.update(contract_value=contract.value, advance_percentage=contract.percentage, advance_paid=contract.advance)
+	# The original value on the contract, the addendum's on the addendum; the total on both.
+	own = "addenda_value" if contract.custom_addendum_to else "original_value"
+	entry.update({own: contract.value}, contract_value=contract.value, advance_percentage=contract.percentage, advance_paid=contract.advance)
 	data.append(entry)
 	all_collected = 0
 	for statement in statements[contract.name]:
