@@ -142,6 +142,13 @@
 			add_material_request_button(frm);
 		},
 
+		// Frappe checks mandatory fields on the copy of each row in locals; a row that lost
+		// it (a save syncs rows by position, so a reordered table can drop one) reads as
+		// empty and blocks the save. The form's rows are the truth, so they are put back.
+		validate(frm) {
+			relink_rows(frm);
+		},
+
 		before_workflow_action(frm) {
 			const action = frm.selected_workflow_action;
 			if (submittal_kind(frm) && action === ACTION_CODE_CORRECTIONS) {
@@ -465,9 +472,13 @@
 
 	// The side's files on the item are replaced by the dialog's, and the task is saved.
 	function save_item_files(frm, row, role, files) {
-		(frm.doc[ITEM_ATTACHMENTS] || [])
-			.filter((file) => file.row_key === row.row_key && file.uploaded_by_role === role)
-			.forEach((file) => frappe.model.clear_doc(file.doctype, file.name));
+		// Removed on the form's own rows, not through locals' parent, which can be stale.
+		const is_side = (file) => file.row_key === row.row_key && file.uploaded_by_role === role;
+		const rows = frm.doc[ITEM_ATTACHMENTS] || [];
+		rows.filter(is_side).forEach((file) => delete locals[file.doctype]?.[file.name]);
+		frm.doc[ITEM_ATTACHMENTS] = rows.filter((file) => !is_side(file));
+		frm.doc[ITEM_ATTACHMENTS].forEach((file, i) => (file.idx = i + 1));
+		relink_rows(frm);
 		files
 			.filter((file) => file.attachment)
 			.forEach((file) =>
@@ -486,6 +497,17 @@
 		).length;
 		frappe.model.set_value(row.doctype, row.name, ITEM_FILE_COUNTS[role], count);
 		frm.save();
+	}
+
+	function relink_rows(frm) {
+		Object.values(frm.doc).forEach((rows) => {
+			if (!Array.isArray(rows)) return;
+			rows.forEach((row) => {
+				if (!row?.doctype || !row.name || !row.parentfield) return;
+				locals[row.doctype] = locals[row.doctype] || {};
+				locals[row.doctype][row.name] = row;
+			});
+		});
 	}
 
 	// The item code with its name beneath it.
