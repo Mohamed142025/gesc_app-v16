@@ -111,11 +111,7 @@ msgstr "تاريخ العقد من"
 msgid "Contract To Date"
 msgstr "تاريخ العقد إلى"
 
-msgid "Progress Statement From Date"
-msgstr "تاريخ المستخلص من"
 
-msgid "Progress Statement To Date"
-msgstr "تاريخ المستخلص إلى"
 
 msgid "Unpaid Progress Statements Only"
 msgstr "المستخلصات غير المسددة فقط"
@@ -155,3 +151,6 @@ msgstr "لا يوجد موظف نشط له مستخدم يطابق جمهور ا
 
 msgid "Choose who the announcement is for: departments, designations, grades or employees."
 msgstr "حدد لمن الإعلان: أقسام أو مسميات وظيفية أو درجات أو موظفون."
+
+msgid "No documents make up this figure."
+msgstr "لا توجد مستندات وراء هذا الرقم."

@@ -13,9 +13,14 @@ each project with their addenda, and the statements (Sales Invoices) of each con
 - The project's cost: its actual expenses, from the general ledger (each expense once,
   whatever document it came from).
 
-The statement dates filter the statements, and so does "unpaid only" (those with
-something left to collect, and the contracts they are on); the contracts' own figures (value, down
-payment, paid, balance) are always whole.
+The dates (from - to) choose what happened in the period: the statements posted in it, the
+down payments paid in it and the project costs booked in it. What is left (on a statement,
+on a contract) and the margin are as of the "to" date: all that was paid, and cost, by then.
+The contract dates choose the contracts. "Unpaid only" keeps the statements with something
+left to collect, and the contracts they are on.
+
+The cost center: each document by its own - a contract by its order's, a statement by its
+items' (as the ledger books its income), a cost by its ledger entry's (a group cost center with those under it).
 
 "Include projects without contracts": the statements of a project not made from a contract
 (no Sales Order on their items), under the project with no contract; they have no down
@@ -38,6 +43,7 @@ PROJECT_FIGURES = ("cost", "margin")
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
+	filters.cost_centers = get_cost_centers(filters.cost_center)
 	contracts = {} if filters.without_contracts_only else get_contracts(filters)
 	statements = get_statements(contracts, filters) if contracts else {}
 	if filters.unpaid_only:
@@ -46,9 +52,29 @@ def execute(filters=None):
 	if not contracts and not loose:
 		return get_columns(), [], None, None, None
 	project_names = {c.project for c in contracts.values() if c.project} | {project for _customer, project in loose}
-	costs = get_costs(filters.company, project_names)
+	costs = get_costs(filters, project_names)
 	data, totals, projects = build_tree(contracts, statements, loose, costs, filters.company)
 	return get_columns(), data, None, get_chart(projects), get_summary(totals, data)
+
+
+def get_cost_centers(cost_center):
+	"""The cost center chosen, with those under it."""
+	if not cost_center:
+		return None
+	lft, rgt = frappe.db.get_value("Cost Center", cost_center, ["lft", "rgt"])
+	return frappe.get_all("Cost Center", filters={"lft": (">=", lft), "rgt": ("<=", rgt)}, pluck="name")
+
+
+def in_period(date, filters):
+	date = getdate(date)
+	return not (
+		(filters.from_date and date < getdate(filters.from_date)) or (filters.to_date and date > getdate(filters.to_date))
+	)
+
+
+def in_cost_centers(statement, filters):
+	"""A statement by its items' cost center, as the ledger books its income."""
+	return not filters.cost_centers or bool(set((statement.cost_centers or "").split(",")) & set(filters.cost_centers))
 
 
 def get_columns():
@@ -95,6 +121,8 @@ def get_contracts(filters):
 		conditions.append("transaction_date >= %(contract_from_date)s")
 	if filters.contract_to_date:
 		conditions.append("transaction_date <= %(contract_to_date)s")
+	if filters.cost_centers:
+		conditions.append("cost_center in %(cost_centers)s")
 
 	fields = """name, customer, customer_name, project, transaction_date, grand_total, base_grand_total,
 		advance_paid, custom_advance_type, custom_advance_percentage, custom_advance_amount,
@@ -108,17 +136,22 @@ def get_contracts(filters):
 		return {}
 	addenda = frappe.db.sql(
 		f"""select {fields} from `tabSales Order`
-		where docstatus = 1 and custom_addendum_to in %(main)s order by transaction_date, name""",
-		{"main": [c.name for c in main]},
+		where docstatus = 1 and custom_addendum_to in %(main)s {"and cost_center in %(cost_centers)s" if filters.cost_centers else ""}
+		order by transaction_date, name""",
+		{"main": [c.name for c in main], "cost_centers": filters.cost_centers},
 		as_dict=True,
 	)
 	contracts = {}
+	paid = get_advances([c.name for c in main + addenda], filters)
 	for contract in main + addenda:
 		rate = flt(contract.base_grand_total) / flt(contract.grand_total) if flt(contract.grand_total) else 1
+		by_then, in_period = paid.get(contract.name, (0, 0))
 		contract.update(
 			value=flt(contract.base_grand_total),
-			# In the party's currency on the order.
-			advance=flt(contract.advance_paid) * rate,
+			# In the party's currency on the order. Paid by the "to" date: recovered by the
+			# statements and part of what was paid; paid in the period: the down payment shown.
+			advance=by_then * rate,
+			advance_in_period=in_period * rate,
 			percentage=advance_percentage(contract),
 			addenda=[],
 		)
@@ -126,6 +159,34 @@ def get_contracts(filters):
 	for addendum in addenda:
 		contracts[addendum.custom_addendum_to].addenda.append(addendum.name)
 	return contracts
+
+
+def get_advances(orders, filters):
+	"""Each order's down payment (its advance ledger, as its Advance Paid): paid by the "to"
+	date, and paid in the period; by the date of the payment."""
+	if not orders:
+		return {}
+	paid = {}
+	for row in frappe.db.sql(
+		"""
+		select entry.against_voucher_no as name, -entry.amount as amount,
+			coalesce(payment.posting_date, journal.posting_date) as posting_date
+		from `tabAdvance Payment Ledger Entry` entry
+		left join `tabPayment Entry` payment on entry.voucher_type = 'Payment Entry' and payment.name = entry.voucher_no
+		left join `tabJournal Entry` journal on entry.voucher_type = 'Journal Entry' and journal.name = entry.voucher_no
+		where entry.against_voucher_type = 'Sales Order' and entry.against_voucher_no in %(orders)s and entry.delinked = 0
+		""",
+		{"orders": orders},
+		as_dict=True,
+	):
+		date = getdate(row.posting_date) if row.posting_date else None
+		by_then, in_period = paid.get(row.name, (0, 0))
+		if not (filters.to_date and date and date > getdate(filters.to_date)):
+			by_then += flt(row.amount)
+			if not (filters.from_date and date and date < getdate(filters.from_date)):
+				in_period += flt(row.amount)
+		paid[row.name] = (by_then, in_period)
+	return paid
 
 
 def advance_percentage(contract):
@@ -146,6 +207,7 @@ def get_statements(contracts, filters):
 		"""
 		select item.sales_order, invoice.name, invoice.posting_date, invoice.custom_statement_title,
 			invoice.is_return, invoice.base_grand_total, invoice.base_net_total,
+			group_concat(distinct item.cost_center) as cost_centers,
 			sum(item.base_net_amount) as net
 		from `tabSales Invoice Item` item
 		inner join `tabSales Invoice` invoice on invoice.name = item.parent
@@ -156,10 +218,8 @@ def get_statements(contracts, filters):
 		{"contracts": list(contracts)},
 		as_dict=True,
 	)
-	collected = get_collections({row.name for row in rows})
+	collected = get_collections({row.name for row in rows}, filters.to_date)
 	advances = get_advance_vouchers(contracts)
-	from_date = getdate(filters.statement_from_date) if filters.statement_from_date else None
-	to_date = getdate(filters.statement_to_date) if filters.statement_to_date else None
 
 	statements = {name: [] for name in contracts}
 	recovered_so_far = {name: 0 for name in contracts}
@@ -181,8 +241,8 @@ def get_statements(contracts, filters):
 			due=value - (after - before),
 			collected=received,
 			hidden=bool(
-				(from_date and getdate(row.posting_date) < from_date)
-				or (to_date and getdate(row.posting_date) > to_date)
+				not in_period(row.posting_date, filters)
+				or not in_cost_centers(row, filters)
 				or (filters.unpaid_only and value - (after - before) - received < 0.005)
 			),
 		)
@@ -206,7 +266,7 @@ def get_uncontracted(filters):
 		f"""
 		select {project} as project, invoice.customer, invoice.customer_name, invoice.name, invoice.posting_date,
 			invoice.custom_statement_title, invoice.is_return, invoice.base_grand_total, invoice.base_net_total,
-			sum(item.base_net_amount) as net
+			group_concat(distinct item.cost_center) as cost_centers, sum(item.base_net_amount) as net
 		from `tabSales Invoice Item` item
 		inner join `tabSales Invoice` invoice on invoice.name = item.parent
 		where {' and '.join(conditions)}
@@ -216,9 +276,7 @@ def get_uncontracted(filters):
 		filters,
 		as_dict=True,
 	)
-	collected = get_collections({row.name for row in rows})
-	from_date = getdate(filters.statement_from_date) if filters.statement_from_date else None
-	to_date = getdate(filters.statement_to_date) if filters.statement_to_date else None
+	collected = get_collections({row.name for row in rows}, filters.to_date)
 
 	loose = {}
 	for row in rows:
@@ -226,8 +284,8 @@ def get_uncontracted(filters):
 		value = flt(row.base_grand_total) * share
 		received = sum(collected.get(row.name, {}).values()) * share
 		if (
-			(from_date and getdate(row.posting_date) < from_date)
-			or (to_date and getdate(row.posting_date) > to_date)
+			not in_period(row.posting_date, filters)
+			or not in_cost_centers(row, filters)
 			or (filters.unpaid_only and value - received < 0.005)
 		):
 			continue
@@ -252,20 +310,21 @@ def with_unpaid(contracts, statements):
 	}
 
 
-def get_collections(invoices):
-	"""What was received against each invoice, by the voucher it came with."""
+def get_collections(invoices, to_date=None):
+	"""What was received against each invoice by the "to" date, by the voucher it came with."""
 	if not invoices:
 		return {}
 	collected = {}
 	for row in frappe.db.sql(
-		"""
+		f"""
 		select against_voucher_no, voucher_no, sum(amount) as amount
 		from `tabPayment Ledger Entry`
 		where against_voucher_type = 'Sales Invoice' and against_voucher_no in %(invoices)s
 			and voucher_type in ('Payment Entry', 'Journal Entry') and delinked = 0
+			{"and posting_date <= %(to_date)s" if to_date else ""}
 		group by against_voucher_no, voucher_no
 		""",
-		{"invoices": list(invoices)},
+		{"invoices": list(invoices), "to_date": to_date},
 		as_dict=True,
 	):
 		# Received: credited to the customer's account.
@@ -292,23 +351,30 @@ def get_advance_vouchers(contracts):
 # Costs
 
 
-def get_costs(company, projects):
-	"""Each project's actual expenses: what was booked to its expense accounts."""
+def get_costs(filters, projects):
+	"""Each project's actual expenses, what was booked to its expense accounts: in the period
+	(its cost), and by the "to" date (for its margin)."""
 	if not projects:
 		return {}
-	return dict(
-		frappe.db.sql(
-			"""
-			select entry.project, sum(entry.debit - entry.credit)
+	conditions = ["entry.is_cancelled = 0", "entry.company = %(company)s", "account.root_type = 'Expense'", "entry.project in %(projects)s"]
+	if filters.to_date:
+		conditions.append("entry.posting_date <= %(to_date)s")
+	if filters.cost_centers:
+		conditions.append("entry.cost_center in %(cost_centers)s")
+	in_period = "entry.posting_date >= %(from_date)s" if filters.from_date else "1 = 1"
+	return {
+		project: (flt(period), flt(by_then))
+		for project, period, by_then in frappe.db.sql(
+			f"""
+			select entry.project, sum(if({in_period}, entry.debit - entry.credit, 0)), sum(entry.debit - entry.credit)
 			from `tabGL Entry` entry
 			inner join `tabAccount` account on account.name = entry.account
-			where entry.is_cancelled = 0 and entry.company = %(company)s
-				and account.root_type = 'Expense' and entry.project in %(projects)s
+			where {' and '.join(conditions)}
 			group by entry.project
 			""",
-			{"company": company, "projects": list(projects)},
+			{**filters, "projects": list(projects)},
 		)
-	)
+	}
 
 
 # The tree
@@ -346,10 +412,11 @@ def build_tree(contracts, statements, loose, costs, company):
 				add(project_row, line, STATEMENT_FIGURES)
 				project_row["total_paid"] += statement.collected
 			if project:
-				project_row["cost"] = flt(costs.get(project))
-				# With no contract, on what was invoiced.
+				period, by_then = costs.get(project, (0, 0))
+				project_row["cost"] = period
+				# With no contract, on what was invoiced; less all it cost by the "to" date.
 				income = project_row["contract_value"] or project_row["invoiced"]
-				project_row["margin"] = income - project_row["cost"]
+				project_row["margin"] = income - by_then
 				projects.append(project_row)
 			add(customer_row, project_row, CONTRACT_FIGURES + STATEMENT_FIGURES + PROJECT_FIGURES)
 		add(totals, customer_row, CONTRACT_FIGURES + STATEMENT_FIGURES + PROJECT_FIGURES)
@@ -378,7 +445,12 @@ def contract_row(contract, statements, parent, indent, data):
 	)
 	# The original value on the contract, the addendum's on the addendum; the total on both.
 	own = "addenda_value" if contract.custom_addendum_to else "original_value"
-	entry.update({own: contract.value}, contract_value=contract.value, advance_percentage=contract.percentage, advance_paid=contract.advance)
+	entry.update(
+		{own: contract.value}, contract_value=contract.value, advance_percentage=contract.percentage,
+		advance_paid=contract.advance_in_period,
+	)
+	# Its own down payment: advance_paid adds its addenda's (the summary's documents).
+	entry["own_advance"] = contract.advance_in_period
 	data.append(entry)
 	all_collected = 0
 	for statement in statements[contract.name]:
@@ -388,7 +460,7 @@ def contract_row(contract, statements, parent, indent, data):
 		line = statement_row(statement, f"i:{contract.name}:{statement.name}", entry["id"], indent + 1)
 		data.append(line)
 		add(entry, line, STATEMENT_FIGURES)
-	# The contract's payments, whatever the statement dates.
+	# The contract's payments by the "to" date, whatever the period.
 	entry["total_paid"] = contract.advance + all_collected
 	entry["contract_balance"] = contract.value - entry["total_paid"]
 	return entry
@@ -466,8 +538,11 @@ def get_chart(projects):
 def get_summary(totals, data):
 	currency = totals.currency
 
-	def card(label, value, indicator="Blue"):
-		return {"label": _(label), "value": flt(value, 2), "datatype": "Currency", "currency": currency, "indicator": indicator}
+	def card(label, value, indicator="Blue", documents=None):
+		return {
+			"label": _(label), "value": flt(value, 2), "datatype": "Currency", "currency": currency, "indicator": indicator,
+			"documents": documents or [],
+		}
 
 	def owing(value):
 		# Frappe colours a card green, red or blue only.
@@ -475,20 +550,43 @@ def get_summary(totals, data):
 
 	def count(label, kind, only_linked=False):
 		# The "No Project" rows group contracts without a project: not a project.
-		value = sum(1 for entry in data if entry["kind"] == kind and (entry["reference"] or not only_linked))
-		return {"label": _(label), "value": value, "datatype": "Int", "indicator": "Grey"}
+		rows = [entry for entry in data if entry["kind"] == kind and (entry["reference"] or not only_linked)]
+		return {"label": _(label), "value": len(rows), "datatype": "Int", "indicator": "Grey", "documents": documents(rows)}
+
+	def documents(rows, field=None):
+		"""The documents a card's figure comes from, each with its share of it (a click on
+		the card lists them)."""
+		return [
+			{"doctype": entry["reference_doctype"], "name": entry["reference"], "label": entry["label"], "amount": flt(entry[field], 2) if field else None}
+			for entry in rows
+			if entry["reference"] and (not field or abs(flt(entry.get(field))) > 0.005)
+		]
+
+	def kinds(*names):
+		return [entry for entry in data if entry["kind"] in names]
+
+	statements = kinds("Progress Statement", "Statement Return")
+	contracts, addenda, projects = kinds("Contract"), kinds("Contract Addendum"), kinds("Project")
+	# A contract's original value and an addendum's own value make the contract values.
+	values = documents(contracts, "original_value") + documents(addenda, "addenda_value")
 
 	return [
 		count("No. of Customers", "Customer"),
 		count("No. of Projects", "Project", only_linked=True),
 		count("No. of Contracts", "Contract"),
 		count("No. of Progress Statements", "Progress Statement"),
-		card("Contract Values", totals.contract_value),
-		card("Down Payments Paid", totals.advance_paid, "Green"),
-		card("Progress Statements", totals.invoiced),
-		card("Collected on Progress Statements", totals.collected, "Green"),
-		card("Remaining on Progress Statements", totals.invoice_balance, owing(totals.invoice_balance)),
-		card("Balance Due on Contracts", totals.contract_balance, owing(totals.contract_balance)),
-		card("Projects Cost", totals.cost, "Red"),
-		card("Margin", totals.margin, "Green" if flt(totals.margin) >= 0 else "Red"),
+		card("Contract Values", totals.contract_value, documents=values),
+		card("Down Payments Paid", totals.advance_paid, "Green", documents(contracts + addenda, "own_advance")),
+		card("Progress Statements", totals.invoiced, documents=documents(statements, "invoiced")),
+		card("Collected on Progress Statements", totals.collected, "Green", documents(statements, "collected")),
+		card(
+			"Remaining on Progress Statements", totals.invoice_balance, owing(totals.invoice_balance),
+			documents(statements, "invoice_balance"),
+		),
+		card(
+			"Balance Due on Contracts", totals.contract_balance, owing(totals.contract_balance),
+			documents(contracts, "contract_balance"),
+		),
+		card("Projects Cost", totals.cost, "Red", documents(projects, "cost")),
+		card("Margin", totals.margin, "Green" if flt(totals.margin) >= 0 else "Red", documents(projects, "margin")),
 	]
