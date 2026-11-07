@@ -11,6 +11,7 @@
   "show_in_print",
   "linked_to_item",
   "item_code",
+  "row_key",
   "remarks"
  ],
  "fields": [
@@ -59,6 +60,14 @@
    "options": "Item"
   },
   {
+   "fieldname": "row_key",
+   "fieldtype": "Data",
+   "label": "Item Row",
+   "hidden": 1,
+   "read_only": 1,
+   "description": "The quotation item row this file belongs to (its custom_row_key)."
+  },
+  {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "ملاحظات"
@@ -66,7 +75,7 @@
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-11-02 00:00:00.000000",
+ "modified": "2026-11-07 12:49:34.720488",
  "modified_by": "Administrator",
  "module": "Gesc App",
  "name": "Quotation Attachment",
