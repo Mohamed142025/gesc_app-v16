@@ -154,7 +154,7 @@ const statement_dashboard = {
 			.join("")}</div>`;
 	},
 
-	bar_row(row, width, chip, tip) {
+	bar_row(row, width, chip, tip, action) {
 		const esc = frappe.utils.escape_html;
 		const inner = `
 			<span class="gs-row-head">
@@ -163,8 +163,9 @@ const statement_dashboard = {
 			</span>
 			<span class="gs-track"><span class="gs-fill" style="width:${width}%"></span></span>`;
 		const attrs = `data-tip="${esc(tip)}" aria-label="${esc(tip)}"`;
-		return row.account
-			? `<button type="button" class="gs-row gs-clickable" data-account="${esc(row.account)}" ${attrs}>${inner}</button>`
+		const target = action || (row.account ? `data-account="${esc(row.account)}"` : "");
+		return target
+			? `<button type="button" class="gs-row gs-clickable" ${target} ${attrs}>${inner}</button>`
 			: `<div class="gs-row" tabindex="0" ${attrs}>${inner}</div>`;
 	},
 
@@ -185,12 +186,57 @@ const statement_dashboard = {
 		const total = d.destinations.reduce((sum, row) => sum + row.amount, 0);
 		return this.panel(
 			__("الخارج ذهب إلى أين"),
-			__("أكبر الحسابات المقابلة للقيمة الخارجة"),
+			__("أكبر الحسابات المقابلة للقيمة الخارجة · اضغط على حساب لعرض حركاته"),
 			this.ranked(d.destinations, (row, width) => {
 				const share = total ? flt((row.amount * 100) / total, 1) : 0;
-				return this.bar_row(row, width, "", `${row.label}\n${format_number(row.amount, null, 2)} · ${share}%`);
+				const action = `data-destination="${frappe.utils.escape_html(row.label)}" data-others="${row.others ? 1 : 0}"`;
+				return this.bar_row(row, width, "", `${row.label}\n${format_number(row.amount, null, 2)} · ${share}%`, action);
 			})
 		);
+	},
+
+	// The movements behind a bar of "where it went".
+	show_movements(report, destination, others) {
+		frappe
+			.xcall("gesc_app.gesc_app.report.كشف_حساب.كشف_حساب.get_destination_movements", {
+				filters: report.get_filter_values(),
+				destination: others ? null : destination,
+				others,
+			})
+			.then((rows) => this.movements_dialog(destination, others, rows));
+	},
+
+	movements_dialog(destination, others, rows) {
+		const esc = frappe.utils.escape_html;
+		const total = rows.reduce((sum, row) => sum + row.amount, 0);
+		const row_html = (row) => `<tr>
+			<td class="text-nowrap">${frappe.datetime.str_to_user(row.posting_date)}</td>
+			<td><div class="small text-muted">${esc(row.voucher_label)}</div>${frappe.utils.get_form_link(row.voucher_type, row.voucher_no, true)}</td>
+			<td>${esc(row.from_account)}</td>
+			${others ? `<td>${esc(row.destination)}</td>` : ""}
+			<td>${esc(row.party || "")}</td>
+			<td>${esc(row.remark || "")}</td>
+			<td class="text-right text-nowrap"><bdi>${format_number(row.amount, null, 2)}</bdi>${row.estimated ? " *" : ""}</td>
+		</tr>`;
+		const note = rows.some((row) => row.estimated)
+			? `<p class="small text-muted">* ${__("المستند فيه أكثر من حساب على الجانبين، والقيمة هي نصيب الحركة منه.")}</p>`
+			: "";
+		const dialog = new frappe.ui.Dialog({ title: __("الحركات: {0}", [destination]), size: "extra-large" });
+		dialog.$body.html(`<div style="max-height: 65vh; overflow: auto">
+			<table class="table table-bordered table-sm">
+				<thead><tr>
+					<th>${__("التاريخ")}</th><th>${__("المستند")}</th><th>${__("من حساب")}</th>
+					${others ? `<th>${__("إلى حساب")}</th>` : ""}
+					<th>${__("الطرف")}</th><th>${__("البيان")}</th><th class="text-right">${__("القيمة")}</th>
+				</tr></thead>
+				<tbody>${rows.map(row_html).join("")}</tbody>
+				<tfoot><tr class="bold">
+					<td colspan="${others ? 6 : 5}">${__("الإجمالي")} (${rows.length})</td>
+					<td class="text-right text-nowrap"><bdi>${format_number(total, null, 2)}</bdi></td>
+				</tr></tfoot>
+			</table>
+		</div>${note}`);
+		dialog.show();
 	},
 
 	monthly(d) {
@@ -237,8 +283,13 @@ const statement_dashboard = {
 			show(this, box.left + box.width / 2, box.top);
 		});
 		root.on("mouseleave focusout", "[data-tip]", () => tip.prop("hidden", true));
-		root.on("click", ".gs-clickable", function () {
+		root.on("click", ".gs-clickable[data-account]", function () {
 			report.set_filter_value("account", [this.dataset.account]);
+		});
+		const dashboard = this;
+		root.on("click", ".gs-clickable[data-destination]", function () {
+			tip.prop("hidden", true);
+			dashboard.show_movements(report, this.dataset.destination, cint(this.dataset.others));
 		});
 	},
 

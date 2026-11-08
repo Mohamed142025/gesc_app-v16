@@ -23,8 +23,10 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
+from frappe.desk.query_report import get_report_doc
 from frappe.utils import cint, date_diff, flt, getdate
 
+REPORT_NAME = "كشف حساب"
 CUSTODY_GROUP_NUMBER = "1205"
 CUSTODY_NAME = "عهد"
 SCOPE_ALL = "كل الحسابات"
@@ -48,22 +50,9 @@ VOUCHER_LABELS = {
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
-	if getdate(filters.from_date) > getdate(filters.to_date):
-		frappe.throw(_("تاريخ البداية بعد تاريخ النهاية."))
-
-	accounts = get_accounts(filters)
-	if not accounts:
-		return get_columns(), []
-	entries = get_entries(filters, accounts)
-	statements = build_statements(filters, accounts, entries, get_custody_accounts(filters.company))
+	statements, destinations = get_statements(filters)
 	if not statements:
 		return get_columns(), []
-	voucher_lines = get_voucher_lines(filters, statements)
-	names = get_account_names({line.account for lines in voucher_lines.values() for line in lines}) | accounts
-	destinations = defaultdict(float)
-	for statement in statements:
-		for movement in statement.movements:
-			add_counter_accounts(movement, statement.account, voucher_lines, names, destinations)
 
 	return (
 		get_columns(),
@@ -71,6 +60,62 @@ def execute(filters=None):
 		None,
 		get_dashboard(filters, statements, destinations),
 	)
+
+
+@frappe.whitelist()
+def get_destination_movements(filters, destination=None, others=0):
+	"""The movements behind one bar of the "where it went" chart, largest first. "Others"
+	is every account the chart does not name."""
+	get_report_doc(REPORT_NAME)
+
+	statements, destinations = get_statements(frappe._dict(frappe.parse_json(filters)))
+	if cint(others):
+		wanted = {label for label, _amount in rank_destinations(destinations)[TOP_DESTINATIONS:]}
+	else:
+		wanted = {destination}
+
+	movements = [
+		{
+			"posting_date": movement.posting_date,
+			"voucher_type": movement.voucher_type,
+			"voucher_no": movement.voucher_no,
+			"voucher_label": VOUCHER_LABELS.get(movement.voucher_type, movement.voucher_type),
+			"from_account": statement.label,
+			"destination": share.label,
+			"party": share.party or movement.party,
+			"remark": movement.remark,
+			"amount": flt(share.amount, 2),
+			# Several lines on both sides: the amount is this movement's share, not a line.
+			"estimated": movement.several_on_both_sides,
+		}
+		for statement in statements
+		for movement in statement.movements
+		for share in movement.shares
+		if share.label in wanted
+	]
+	return sorted(movements, key=lambda row: -row["amount"])
+
+
+def get_statements(filters):
+	"""The accounts' statements, each movement with the accounts on its other side, and
+	how much went out to each account."""
+	if getdate(filters.from_date) > getdate(filters.to_date):
+		frappe.throw(_("تاريخ البداية بعد تاريخ النهاية."))
+
+	destinations = defaultdict(float)
+	accounts = get_accounts(filters)
+	if not accounts:
+		return [], destinations
+	entries = get_entries(filters, accounts)
+	statements = build_statements(filters, accounts, entries, get_custody_accounts(filters.company))
+	if not statements:
+		return [], destinations
+	voucher_lines = get_voucher_lines(filters, statements)
+	names = get_account_names({line.account for lines in voucher_lines.values() for line in lines}) | accounts
+	for statement in statements:
+		for movement in statement.movements:
+			add_counter_accounts(movement, statement.account, voucher_lines, names, destinations)
+	return statements, destinations
 
 
 def selected_accounts(filters):
@@ -270,9 +315,14 @@ def add_counter_accounts(movement, account, voucher_lines, names, destinations):
 		)
 		for key, amount in sorted(other.items(), key=lambda item: -item[1])
 	]
+	movement.shares = []
 	if movement.side == "out" and own_total:
 		for key, amount in other.items():
-			destinations[names.get(key[0], key[0])] += amount * movement.amount / own_total
+			share = frappe._dict(
+				label=names.get(key[0], key[0]), party=key[1], amount=amount * movement.amount / own_total
+			)
+			movement.shares.append(share)
+			destinations[share.label] += share.amount
 
 
 def build_rows(statements):
@@ -401,12 +451,16 @@ def get_monthly(filters, statements):
 
 
 def get_destinations(destinations):
-	ranked = sorted(destinations.items(), key=lambda item: -item[1])
+	ranked = rank_destinations(destinations)
 	result = [{"label": label, "amount": flt(amount, 2)} for label, amount in ranked[:TOP_DESTINATIONS]]
 	rest = ranked[TOP_DESTINATIONS:]
 	if rest:
-		result.append({"label": f"أخرى ({len(rest)})", "amount": flt(sum(a for _label, a in rest), 2)})
+		result.append({"label": f"أخرى ({len(rest)})", "amount": flt(sum(a for _label, a in rest), 2), "others": 1})
 	return result
+
+
+def rank_destinations(destinations):
+	return sorted(destinations.items(), key=lambda item: -item[1])
 
 
 def get_columns():
