@@ -186,34 +186,32 @@ const statement_dashboard = {
 		const total = d.destinations.reduce((sum, row) => sum + row.amount, 0);
 		return this.panel(
 			__("الخارج ذهب إلى أين"),
-			__("أكبر الحسابات المقابلة للقيمة الخارجة · اضغط على حساب لعرض حركاته"),
-			this.ranked(d.destinations, (row, width) => {
+			__("كل الحسابات المقابلة للقيمة الخارجة · اضغط على حساب لعرض حركاته"),
+			`<div class="gs-scroll">${this.ranked(d.destinations, (row, width) => {
 				const share = total ? flt((row.amount * 100) / total, 1) : 0;
-				const action = `data-destination="${frappe.utils.escape_html(row.label)}" data-others="${row.others ? 1 : 0}"`;
+				const action = `data-destination="${frappe.utils.escape_html(row.label)}"`;
 				return this.bar_row(row, width, "", `${row.label}\n${format_number(row.amount, null, 2)} · ${share}%`, action);
-			})
+			})}</div>`
 		);
 	},
 
 	// The movements behind a bar of "where it went".
-	show_movements(report, destination, others) {
+	show_movements(report, destination) {
 		frappe
 			.xcall("gesc_app.gesc_app.report.كشف_حساب.كشف_حساب.get_destination_movements", {
 				filters: report.get_filter_values(),
-				destination: others ? null : destination,
-				others,
+				destination,
 			})
-			.then((rows) => this.movements_dialog(destination, others, rows));
+			.then((rows) => this.movements_dialog(destination, rows));
 	},
 
-	movements_dialog(destination, others, rows) {
+	movements_dialog(destination, rows) {
 		const esc = frappe.utils.escape_html;
 		const total = rows.reduce((sum, row) => sum + row.amount, 0);
 		const row_html = (row) => `<tr>
 			<td class="text-nowrap">${frappe.datetime.str_to_user(row.posting_date)}</td>
 			<td><div class="small text-muted">${esc(row.voucher_label)}</div>${frappe.utils.get_form_link(row.voucher_type, row.voucher_no, true)}</td>
 			<td>${esc(row.from_account)}</td>
-			${others ? `<td>${esc(row.destination)}</td>` : ""}
 			<td>${esc(row.party || "")}</td>
 			<td>${esc(row.remark || "")}</td>
 			<td class="text-right text-nowrap"><bdi>${format_number(row.amount, null, 2)}</bdi>${row.estimated ? " *" : ""}</td>
@@ -226,12 +224,11 @@ const statement_dashboard = {
 			<table class="table table-bordered table-sm">
 				<thead><tr>
 					<th>${__("التاريخ")}</th><th>${__("المستند")}</th><th>${__("من حساب")}</th>
-					${others ? `<th>${__("إلى حساب")}</th>` : ""}
 					<th>${__("الطرف")}</th><th>${__("البيان")}</th><th class="text-right">${__("القيمة")}</th>
 				</tr></thead>
 				<tbody>${rows.map(row_html).join("")}</tbody>
 				<tfoot><tr class="bold">
-					<td colspan="${others ? 6 : 5}">${__("الإجمالي")} (${rows.length})</td>
+					<td colspan="5">${__("الإجمالي")} (${rows.length})</td>
 					<td class="text-right text-nowrap"><bdi>${format_number(total, null, 2)}</bdi></td>
 				</tr></tfoot>
 			</table>
@@ -289,7 +286,7 @@ const statement_dashboard = {
 		const dashboard = this;
 		root.on("click", ".gs-clickable[data-destination]", function () {
 			tip.prop("hidden", true);
-			dashboard.show_movements(report, this.dataset.destination, cint(this.dataset.others));
+			dashboard.show_movements(report, this.dataset.destination);
 		});
 	},
 
@@ -310,6 +307,7 @@ const statement_dashboard = {
 		.gs-title { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text-color); }
 		.gs-subtitle { color: var(--text-muted); font-size: var(--text-xs); margin-block: 2px 12px; min-height: 18px; }
 		.gs-empty { color: var(--text-muted); padding-block: 32px; text-align: center; }
+		.gs-scroll { max-height: 340px; overflow-y: auto; }
 		.gs-ranked { display: flex; flex-direction: column; gap: 2px; }
 		.gs-row { display: block; width: 100%; padding: 5px 6px; background: none; border: 0; border-radius: 6px; text-align: start; color: inherit; }
 		.gs-clickable { cursor: pointer; }

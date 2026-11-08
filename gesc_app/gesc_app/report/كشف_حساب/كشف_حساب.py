@@ -31,7 +31,6 @@ CUSTODY_GROUP_NUMBER = "1205"
 CUSTODY_NAME = "عهد"
 SCOPE_ALL = "كل الحسابات"
 TOP_BALANCES = 8
-TOP_DESTINATIONS = 7
 MAX_MONTHS = 12
 REMARK_LENGTH = 120
 VOUCHER_LABELS = {
@@ -63,17 +62,11 @@ def execute(filters=None):
 
 
 @frappe.whitelist()
-def get_destination_movements(filters, destination=None, others=0):
-	"""The movements behind one bar of the "where it went" chart, largest first. "Others"
-	is every account the chart does not name."""
+def get_destination_movements(filters, destination):
+	"""The movements behind one bar of the "where it went" chart, largest first."""
 	get_report_doc(REPORT_NAME)
 
-	statements, destinations = get_statements(frappe._dict(frappe.parse_json(filters)))
-	if cint(others):
-		wanted = {label for label, _amount in rank_destinations(destinations)[TOP_DESTINATIONS:]}
-	else:
-		wanted = {destination}
-
+	statements, _destinations = get_statements(frappe._dict(frappe.parse_json(filters)))
 	movements = [
 		{
 			"posting_date": movement.posting_date,
@@ -81,7 +74,6 @@ def get_destination_movements(filters, destination=None, others=0):
 			"voucher_no": movement.voucher_no,
 			"voucher_label": VOUCHER_LABELS.get(movement.voucher_type, movement.voucher_type),
 			"from_account": statement.label,
-			"destination": share.label,
 			"party": share.party or movement.party,
 			"remark": movement.remark,
 			"amount": flt(share.amount, 2),
@@ -91,7 +83,7 @@ def get_destination_movements(filters, destination=None, others=0):
 		for statement in statements
 		for movement in statement.movements
 		for share in movement.shares
-		if share.label in wanted
+		if share.label == destination
 	]
 	return sorted(movements, key=lambda row: -row["amount"])
 
@@ -451,16 +443,8 @@ def get_monthly(filters, statements):
 
 
 def get_destinations(destinations):
-	ranked = rank_destinations(destinations)
-	result = [{"label": label, "amount": flt(amount, 2)} for label, amount in ranked[:TOP_DESTINATIONS]]
-	rest = ranked[TOP_DESTINATIONS:]
-	if rest:
-		result.append({"label": f"أخرى ({len(rest)})", "amount": flt(sum(a for _label, a in rest), 2), "others": 1})
-	return result
-
-
-def rank_destinations(destinations):
-	return sorted(destinations.items(), key=lambda item: -item[1])
+	ranked = sorted(destinations.items(), key=lambda item: -item[1])
+	return [{"label": label, "amount": flt(amount, 2)} for label, amount in ranked]
 
 
 def get_columns():
