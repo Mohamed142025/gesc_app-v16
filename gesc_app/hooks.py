@@ -28,6 +28,7 @@ app_license = "mit"
 # Bump asset query versions when changing raw static files.
 app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
+	"/assets/gesc_app/js/trial_balance_for_party.js",
 	"/assets/gesc_app/js/item_description.js?v=1",
 	"/assets/gesc_app/js/private_comments.js?v=2",
 ]
@@ -206,6 +207,10 @@ boot_session = "gesc_app.gesc_app.private_comments.boot_session"
 doc_events = {
 	"*": {
 		"validate": "gesc_app.item_description_setup.validate_item_descriptions",
+	},
+	# A custody entry is approved only through its workflow (journal_entry_workflow).
+	"Journal Entry": {
+		"before_submit": "gesc_app.gesc_app.journal_entry_workflow.before_submit",
 	},
 	"Task": {
 		"validate": "gesc_app.gesc_app.task_execution.validate_task",
