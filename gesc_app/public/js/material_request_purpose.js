@@ -2,7 +2,7 @@
 // behaviour for that purpose follows (buttons, warehouses, issuing). "طلب عينة" is a Material
 // Issue for a customer, a project or both (gesc_app.gesc_app.sample_request): a project brings
 // its customer, a customer narrows the projects to its own, and changing the customer clears
-// the project.
+// the project. The project shows on every request, and the items take it.
 frappe.ui.form.on("Material Request", {
 	setup(frm) {
 		frm.set_query("custom_sample_project", () =>
@@ -24,11 +24,11 @@ frappe.ui.form.on("Material Request", {
 		}
 		if (purpose !== "طلب عينة") {
 			if (frm.doc.custom_sample_customer) frm.set_value("custom_sample_customer", "");
-			if (frm.doc.custom_sample_project) frm.set_value("custom_sample_project", "");
 		}
 	},
 
 	custom_sample_customer(frm) {
+		if (frm.doc.custom_request_purpose !== "طلب عينة") return;
 		// The customer set from a project keeps that project.
 		if (frm.__customer_from_project) {
 			frm.__customer_from_project = false;
@@ -39,12 +39,23 @@ frappe.ui.form.on("Material Request", {
 
 	async custom_sample_project(frm) {
 		const project = frm.doc.custom_sample_project;
-		if (!project) return;
+		(frm.doc.items || []).forEach((row) => {
+			frappe.model.set_value(row.doctype, row.name, "project", project || "");
+		});
+		if (!project || frm.doc.custom_request_purpose !== "طلب عينة") return;
 		const { message } = await frappe.db.get_value("Project", project, "customer");
 		const customer = message?.customer;
 		if (customer && customer !== frm.doc.custom_sample_customer) {
 			frm.__customer_from_project = true;
 			frm.set_value("custom_sample_customer", customer);
+		}
+	},
+});
+
+frappe.ui.form.on("Material Request Item", {
+	items_add(frm, cdt, cdn) {
+		if (frm.doc.custom_sample_project) {
+			frappe.model.set_value(cdt, cdn, "project", frm.doc.custom_sample_project);
 		}
 	},
 });

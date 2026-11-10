@@ -13,6 +13,9 @@ carries the customer; a sample Stock Entry made by hand needs one too.
 A sample is for a customer, a project, or both: at least one is needed. A project brings its
 customer, and only that customer's projects may go with a chosen customer. The project goes on
 the request's items and on the Stock Entry, so the sample is costed to it.
+
+The project field shows on every request, whatever its purpose: the items take it, and a
+request made with one project on all its items (from a task, say) shows it too.
 """
 
 import frappe
@@ -28,6 +31,7 @@ MODULE = "Gesc App"
 PURPOSES = ("Purchase", "Material Transfer", ISSUE, "Manufacture", "Subcontracting", "Customer Provided", SAMPLE)
 SAMPLE_CUSTOMER = "custom_sample_customer"
 SAMPLE_PROJECT = "custom_sample_project"
+SAMPLE_PROJECT_TITLE = "custom_sample_project_title"
 IS_SAMPLE_MR = f"eval:doc.{PURPOSE} == '{SAMPLE}'"
 
 
@@ -57,7 +61,7 @@ def setup():
 					"insert_after": PURPOSE,
 					"depends_on": IS_SAMPLE_MR,
 					"mandatory_depends_on": f"eval:doc.{PURPOSE} == '{SAMPLE}' && !doc.{SAMPLE_PROJECT}",
-					"description": "العميل أو المشروع، واحد منهم على الأقل.",
+					"description": "العميل أو المشروع، واحد منهم على الأقل. لو اخترت عميلاً، تظهر مشاريعه فقط.",
 					"module": MODULE,
 				},
 				{
@@ -66,9 +70,9 @@ def setup():
 					"fieldtype": "Link",
 					"options": "Project",
 					"insert_after": SAMPLE_CUSTOMER,
-					"depends_on": IS_SAMPLE_MR,
+					"depends_on": "",
 					"mandatory_depends_on": f"eval:doc.{PURPOSE} == '{SAMPLE}' && !doc.{SAMPLE_CUSTOMER}",
-					"description": "لو اخترت عميلاً، تظهر مشاريعه فقط.",
+					"description": "",
 					"module": MODULE,
 				},
 			],
@@ -136,6 +140,7 @@ def is_sample(material_request):
 def sync_purpose(doc, method=None):
 	"""before_validate: "الغرض" sets ERPNext's purpose; a request made elsewhere with only
 	ERPNext's purpose gets it in "الغرض" too."""
+	_sync_project(doc)
 	purpose = doc.get(PURPOSE)
 	if purpose == SAMPLE:
 		doc.material_request_type = ISSUE
@@ -143,9 +148,27 @@ def sync_purpose(doc, method=None):
 	elif purpose in PURPOSES:
 		doc.material_request_type = purpose
 		doc.set(SAMPLE_CUSTOMER, None)
-		doc.set(SAMPLE_PROJECT, None)
 	else:
 		doc.set(PURPOSE, doc.material_request_type)
+
+
+def _sync_project(doc):
+	"""The items take the request's project; one project on all the items is the request's."""
+	project = doc.get(SAMPLE_PROJECT)
+	if not project:
+		projects = {row.project for row in doc.items}
+		project = projects.pop() if len(projects) == 1 else None
+		if not project:
+			return
+		doc.set(SAMPLE_PROJECT, project)
+	# Frappe has already fetched the names by now, for the projects it was given.
+	title = frappe.db.get_value("Project", project, "project_name")
+	doc.set(SAMPLE_PROJECT_TITLE, title)
+	for row in doc.items:
+		if not row.project:
+			row.project = project
+		if row.project == project:
+			row.custom_project_title = title
 
 
 def _check_customer_and_project(doc):
@@ -162,10 +185,6 @@ def _check_customer_and_project(doc):
 					frappe.bold(project), frappe.bold(project_customer), frappe.bold(customer)
 				)
 			)
-		# The sample is costed to the project.
-		for row in doc.items:
-			if not row.project:
-				row.project = project
 
 
 # Stock Entry ----------------------------------------------------------------------------
