@@ -4,7 +4,8 @@
 """الموقف المالي للعقود: for each customer, their projects, the contracts (Sales Orders) of
 each project with their addenda, and the statements (Sales Invoices) of each contract.
 
-- The down payment is what was actually paid on the contract (the Sales Order's advance).
+- The down payment is what was actually paid on the contract (the Sales Order's advance),
+  less what of it was allocated to another contract's statement: that is collected there.
 - Each statement recovers its share of the down payment: its value times the contract's
   down payment percentage, until the down payment paid is recovered.
 - Due on a statement: its value less the down payment it recovers; collected: what was
@@ -167,9 +168,10 @@ def get_advances(orders, filters):
 	if not orders:
 		return {}
 	paid = {}
+	moved = get_moved_advances(orders, filters.to_date)
 	for row in frappe.db.sql(
 		"""
-		select entry.against_voucher_no as name, -entry.amount as amount,
+		select entry.against_voucher_no as name, entry.voucher_no, -entry.amount as amount,
 			coalesce(payment.posting_date, journal.posting_date) as posting_date
 		from `tabAdvance Payment Ledger Entry` entry
 		left join `tabPayment Entry` payment on entry.voucher_type = 'Payment Entry' and payment.name = entry.voucher_no
@@ -182,11 +184,81 @@ def get_advances(orders, filters):
 		date = getdate(row.posting_date) if row.posting_date else None
 		by_then, in_period = paid.get(row.name, (0, 0))
 		if not (filters.to_date and date and date > getdate(filters.to_date)):
-			by_then += flt(row.amount)
+			gone = max(min(moved.get(row.voucher_no, 0), flt(row.amount)), 0)
+			moved[row.voucher_no] = moved.get(row.voucher_no, 0) - gone
+			by_then += flt(row.amount) - gone
 			if not (filters.from_date and date and date < getdate(filters.from_date)):
-				in_period += flt(row.amount)
+				in_period += flt(row.amount) - gone
 		paid[row.name] = (by_then, in_period)
 	return paid
+
+
+def get_moved_advances(orders, to_date=None):
+	"""How much of each down payment voucher was allocated to the statements of contracts it
+	is not a down payment of, by the "to" date. It counts as collected on those statements,
+	so not as a down payment too. An invoice of several contracts moves only their share."""
+	vouchers = [
+		row.voucher_no
+		for row in frappe.db.sql(
+			"""
+			select distinct voucher_no from `tabAdvance Payment Ledger Entry`
+			where against_voucher_type = 'Sales Order' and against_voucher_no in %(orders)s and delinked = 0
+			""",
+			{"orders": orders},
+			as_dict=True,
+		)
+	]
+	if not vouchers:
+		return {}
+
+	own_orders = {}
+	for row in frappe.db.sql(
+		"""
+		select distinct voucher_no, against_voucher_no from `tabAdvance Payment Ledger Entry`
+		where against_voucher_type = 'Sales Order' and voucher_no in %(vouchers)s and delinked = 0
+		""",
+		{"vouchers": vouchers},
+		as_dict=True,
+	):
+		own_orders.setdefault(row.voucher_no, set()).add(row.against_voucher_no)
+
+	allocations = frappe.db.sql(
+		f"""
+		select voucher_no, against_voucher_no as invoice, -sum(amount) as amount
+		from `tabPayment Ledger Entry`
+		where against_voucher_type = 'Sales Invoice' and voucher_no in %(vouchers)s and delinked = 0
+			{"and posting_date <= %(to_date)s" if to_date else ""}
+		group by voucher_no, against_voucher_no
+		""",
+		{"vouchers": vouchers, "to_date": to_date},
+		as_dict=True,
+	)
+	if not allocations:
+		return {}
+
+	invoice_items = {}
+	for row in frappe.db.sql(
+		"""
+		select parent, sales_order, sum(base_net_amount) as net from `tabSales Invoice Item`
+		where parent in %(invoices)s group by parent, sales_order
+		""",
+		{"invoices": list({row.invoice for row in allocations})},
+		as_dict=True,
+	):
+		invoice_items.setdefault(row.parent, []).append(row)
+
+	moved = {}
+	for allocation in allocations:
+		items = invoice_items.get(allocation.invoice, [])
+		total = sum(flt(item.net) for item in items)
+		other = sum(
+			flt(item.net)
+			for item in items
+			if item.sales_order and item.sales_order not in own_orders[allocation.voucher_no]
+		)
+		if total and other:
+			moved[allocation.voucher_no] = moved.get(allocation.voucher_no, 0) + flt(allocation.amount) * other / total
+	return moved
 
 
 def advance_percentage(contract):
