@@ -13,7 +13,8 @@ quotation numbered before this scheme (SAL-QTN-2026-00006) keeps its name and it
 amendments keep Frappe's -1, -2; its addenda are SAL-QTN-2026-00006-002, -003 ...
 
 An addendum is made from a submitted main quotation (Open, or already a contract: Ordered),
-for the same customer. The sales order made from it becomes an addendum to the contract made
+for the same customer: from the main quotation's "Create" menu, or on a new quotation by
+ticking "ملحق عرض سعر" once the customer is chosen and picking one of their main quotations. The sales order made from it becomes an addendum to the contract made
 from the main quotation, so that contract has to exist by then.
 """
 
@@ -169,6 +170,34 @@ def make_addendum(source_name, target_doc=None):
 	)
 
 
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def main_quotation_query(doctype, txt, searchfield, start, page_len, filters):
+	"""The customer's main quotations an addendum can be made to: submitted, open or already
+	a contract, and not addenda themselves. A quotation made to the lead the customer came
+	from is theirs too."""
+	customer = (filters or {}).get("customer")
+	if not customer:
+		return []
+	# A lead's name is its own series (CRM-LEAD-...), so it never reads as a customer's.
+	parties = [customer, frappe.db.get_value("Customer", customer, "lead_name")]
+	return frappe.get_list(
+		"Quotation",
+		filters={
+			"docstatus": 1,
+			"status": ("in", ADDENDUM_ALLOWED),
+			"custom_addendum_to": ("is", "not set"),
+			"party_name": ("in", [party for party in parties if party]),
+			"name": ("like", f"%{txt}%"),
+		},
+		fields=["name", "transaction_date", "status"],
+		order_by="transaction_date desc",
+		limit_start=start,
+		limit_page_length=page_len,
+		as_list=True,
+	)
+
+
 def _get_main(name):
 	main = frappe.db.get_value(
 		"Quotation",
@@ -274,9 +303,14 @@ def setup_quotation_addendum():
 					"fieldname": "custom_is_addendum",
 					"label": "ملحق عرض سعر",
 					"fieldtype": "Check",
-					"insert_after": "custom_approval_status",
-					"depends_on": "eval:doc.custom_is_addendum",
-					"read_only": 1,
+					"insert_after": "party_name",
+					# Ticked on a new quotation once its customer is chosen; fixed once saved.
+					"depends_on": (
+						"eval:doc.custom_is_addendum || (doc.__islocal && !doc.amended_from"
+						" && doc.quotation_to == 'Customer' && doc.party_name)"
+					),
+					"read_only": 0,
+					"read_only_depends_on": "eval:!doc.__islocal || doc.amended_from",
 					"no_copy": 1,
 					"in_standard_filter": 1,
 					"module": MODULE,
@@ -287,8 +321,11 @@ def setup_quotation_addendum():
 					"fieldtype": "Link",
 					"options": "Quotation",
 					"insert_after": "custom_is_addendum",
-					"depends_on": "eval:doc.custom_addendum_to",
-					"read_only": 1,
+					"depends_on": "eval:doc.custom_is_addendum || doc.custom_addendum_to",
+					"mandatory_depends_on": "eval:doc.custom_is_addendum",
+					"read_only": 0,
+					"read_only_depends_on": "eval:!doc.__islocal || doc.amended_from",
+					"description": "عروض الأسعار الأساسية المعتمدة لنفس العميل.",
 					"no_copy": 1,
 					"search_index": 1,
 					"module": MODULE,
