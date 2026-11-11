@@ -156,6 +156,8 @@ after_migrate = [
 	"gesc_app.gesc_app.hr_announcement_audience.setup",
 	# gesc_app's reports in ERPNext's Financial Reports sidebar (financial_reports_sidebar).
 	"gesc_app.gesc_app.financial_reports_sidebar.setup",
+	# A project's assignees read its contracts and their quotations (project_access).
+	"gesc_app.gesc_app.project_access.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
@@ -232,8 +234,13 @@ doc_events = {
 			"gesc_app.gesc_app.material_submittal.acknowledge",
 			# An assignee may edit what they are assigned (System Settings, assignment_edit).
 			"gesc_app.gesc_app.assignment_edit.sync_edit_share",
+			# A project's assignees read its contracts and their quotations (project_access).
+			"gesc_app.gesc_app.project_access.on_todo_change",
 		],
-		"on_trash": "gesc_app.gesc_app.assignment_edit.revoke_on_delete",
+		"on_trash": [
+			"gesc_app.gesc_app.assignment_edit.revoke_on_delete",
+			"gesc_app.gesc_app.project_access.on_todo_change",
+		],
 	},
 	"System Settings": {
 		"on_update": "gesc_app.gesc_app.assignment_edit.apply_setting",
@@ -289,6 +296,8 @@ doc_events = {
 			"gesc_app.gesc_app.project_title.update_project_title",
 			# The team's users are assigned the project (project_team).
 			"gesc_app.gesc_app.project_team.sync_assignments",
+			# Its assignees read its contract (project_access).
+			"gesc_app.gesc_app.project_access.on_project_change",
 		],
 	},
 	"Sales Order": {
@@ -302,8 +311,18 @@ doc_events = {
 		],
 		"before_submit": "gesc_app.gesc_app.project_controls.validate_sales_order_advance",
 		"before_update_after_submit": "gesc_app.gesc_app.project_controls.check_advance_change_after_submit",
-		"on_submit": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
-		"on_cancel": "gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
+		"on_submit": [
+			"gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
+			"gesc_app.gesc_app.project_access.on_sales_order_change",
+		],
+		"on_cancel": [
+			"gesc_app.gesc_app.sales_order_utils.refresh_linked_project_items",
+			"gesc_app.gesc_app.project_access.on_sales_order_change",
+		],
+		# The project's assignees read its contracts and their quotations (project_access).
+		"on_update": "gesc_app.gesc_app.project_access.on_sales_order_change",
+		"on_update_after_submit": "gesc_app.gesc_app.project_access.on_sales_order_change",
+		"on_trash": "gesc_app.gesc_app.project_access.on_sales_order_change",
 	},
 	"Delivery Note": {
 		"before_validate": "gesc_app.gesc_app.delivery_note_utils.calculate_line_values",
