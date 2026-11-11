@@ -154,6 +154,8 @@ after_migrate = [
 	"gesc_app.gesc_app.sales_order_progress.setup",
 	# HR Announcement for selected departments, designations, grades or employees.
 	"gesc_app.gesc_app.hr_announcement_audience.setup",
+	# gesc_app's reports in ERPNext's Financial Reports sidebar (financial_reports_sidebar).
+	"gesc_app.gesc_app.financial_reports_sidebar.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
