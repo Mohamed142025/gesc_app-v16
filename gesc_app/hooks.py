@@ -158,6 +158,8 @@ after_migrate = [
 	"gesc_app.gesc_app.financial_reports_sidebar.setup",
 	# A project's assignees read its contracts and their quotations (project_access).
 	"gesc_app.gesc_app.project_access.setup",
+	# The website's job application form and the applicant's details (job_application).
+	"gesc_app.gesc_app.job_application.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
@@ -212,9 +214,12 @@ doc_events = {
 	"*": {
 		"validate": "gesc_app.item_description_setup.validate_item_descriptions",
 	},
-	# A custody entry is approved only through its workflow (journal_entry_workflow).
+	# The applicant's age, and what the website's form requires (job_application).
+	"Job Applicant": {"validate": "gesc_app.gesc_app.job_application.validate"},
+	# Entries are approved and cancelled only through their workflow (journal_entry_workflow).
 	"Journal Entry": {
 		"before_submit": "gesc_app.gesc_app.journal_entry_workflow.before_submit",
+		"before_cancel": "gesc_app.gesc_app.journal_entry_workflow.before_cancel",
 	},
 	"Task": {
 		"validate": "gesc_app.gesc_app.task_execution.validate_task",
@@ -252,6 +257,12 @@ doc_events = {
 	# Sample requests: a Material Issue for a customer (sample_request).
 	"Material Request": {
 		"before_validate": "gesc_app.gesc_app.sample_request.sync_purpose",
+		# The project's assignees read it (project_access).
+		"on_update": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_cancel": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_update_after_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_trash": "gesc_app.gesc_app.project_access.on_project_document_change",
 	},
 	"Stock Entry": {
 		"before_validate": [
@@ -259,6 +270,12 @@ doc_events = {
 			# The project on every item; an installation needs one (stock_entry_project).
 			"gesc_app.gesc_app.stock_entry_project.validate",
 		],
+		# The project's assignees read it (project_access).
+		"on_update": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_cancel": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_update_after_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_trash": "gesc_app.gesc_app.project_access.on_project_document_change",
 	},
 	"Quotation": {
 		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
