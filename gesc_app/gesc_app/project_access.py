@@ -1,8 +1,10 @@
-"""Whoever is assigned a project can read its contracts and their quotations.
+"""Whoever is assigned a project can read its documents: its contracts and their quotations,
+its Material Requests and its Stock Entries.
 
 The project's contracts are its Sales Orders (the main contract and its addenda, and the one
-on the project's own field); their quotations are the ones their items were made from. A
-user with an open assignment (ToDo) on the project is given read on them through a share,
+on the project's own field); their quotations are the ones their items were made from. Its
+Material Requests and Stock Entries are those with the project on the header or on an item.
+A user with an open assignment (ToDo) on the project is given read on them through a share,
 when their roles do not let them read them already (a Site Engineer reads only the Sales
 Orders they made, say).
 
@@ -61,6 +63,22 @@ def on_todo_change(todo, method=None):
 def on_sales_order_change(doc, method=None):
 	before = doc.get_doc_before_save()
 	_queue(_assignees({doc.project, before.project if before else None}))
+
+
+# The project fields of a Material Request or Stock Entry: on the header and on the items.
+PROJECT_FIELDS = {"Material Request": ("custom_sample_project",), "Stock Entry": ("project",)}
+
+
+def on_project_document_change(doc, method=None):
+	"""A Material Request or Stock Entry saved, submitted, cancelled or deleted: the
+	assignees of its projects, before and after, are brought up to date."""
+	projects = set()
+	for version in (doc, doc.get_doc_before_save()):
+		if not version:
+			continue
+		projects |= {version.get(field) for field in PROJECT_FIELDS.get(doc.doctype, ())}
+		projects |= {row.get("project") for row in version.get("items") or []}
+	_queue(_assignees(projects))
 
 
 def on_project_change(doc, method=None):
@@ -153,4 +171,31 @@ def documents_for(user):
 			)
 		)
 		quotations = set(frappe.get_all("Quotation", filters={"name": ("in", list(quotations))}, pluck="name")) if quotations else set()
-	return {("Sales Order", name) for name in orders} | {("Quotation", name) for name in quotations}
+	material_requests = set(
+		frappe.get_all(
+			"Material Request Item",
+			filters={"project": ("in", projects), "docstatus": ("<", 2)},
+			pluck="parent",
+		)
+	) | set(
+		frappe.get_all(
+			"Material Request",
+			filters={"custom_sample_project": ("in", projects), "docstatus": ("<", 2)},
+			pluck="name",
+		)
+	)
+	stock_entries = set(
+		frappe.get_all("Stock Entry", filters={"project": ("in", projects), "docstatus": ("<", 2)}, pluck="name")
+	) | set(
+		frappe.get_all(
+			"Stock Entry Detail",
+			filters={"project": ("in", projects), "docstatus": ("<", 2)},
+			pluck="parent",
+		)
+	)
+	return (
+		{("Sales Order", name) for name in orders}
+		| {("Quotation", name) for name in quotations}
+		| {("Material Request", name) for name in material_requests}
+		| {("Stock Entry", name) for name in stock_entries}
+	)
