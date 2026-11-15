@@ -474,6 +474,8 @@ def create_material_request(task, quantities=None):
 				"schedule_date": task.custom_required_by_date,
 				"warehouse": warehouse,
 				"project": task.project,
+				# The Technical Office's notes on the item go to purchasing with it.
+				"custom_technical_office_notes": row.technical_office_notes,
 			},
 		)
 
