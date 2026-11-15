@@ -29,7 +29,7 @@ app_license = "mit"
 app_include_js = [
 	"/assets/gesc_app/js/sales_order_analysis.js",
 	"/assets/gesc_app/js/trial_balance_for_party.js",
-	"/assets/gesc_app/js/item_description.js?v=1",
+	"/assets/gesc_app/js/item_description.js?v=2",
 	"/assets/gesc_app/js/private_comments.js?v=2",
 ]
 
@@ -50,8 +50,16 @@ app_include_js = [
 # include js in doctype views
 doctype_js = {
 	# "الغرض" with the sample request (sample_request).
-	"Material Request": "public/js/material_request_purpose.js",
-	"Quotation": ["public/js/quotation.js", "public/js/quotation_approval.js", "public/js/quotation_addendum.js"],
+	"Material Request": ["public/js/material_request_purpose.js", "public/js/material_request_project.js"],
+	"Quotation": [
+		"public/js/quotation.js",
+		"public/js/quotation_approval.js",
+		"public/js/quotation_addendum.js",
+		# Download as Word or Excel in a print format's layout (quotation_export).
+		"public/js/quotation_export.js",
+		# Proposals (Opt.1, Opt.2...) and the Sales Order of the chosen one (quotation_options).
+		"public/js/quotation_options.js",
+	],
 	"Project": ["public/js/project.js", "public/js/project_controls.js"],
 	"Task": ["public/js/task.js", "public/js/task_execution.js"],
 	"Project Item": "public/js/project_item.js",
@@ -99,6 +107,8 @@ doctype_js = {
 # 	"methods": "gesc_app.utils.jinja_methods",
 # 	"filters": "gesc_app.utils.jinja_filters"
 # }
+# The proposals under each item, for the proposals print format (quotation_options).
+jinja = {"methods": ["gesc_app.gesc_app.quotation_options.rows_by_item"]}
 
 # Installation
 # ------------
@@ -160,6 +170,10 @@ after_migrate = [
 	"gesc_app.gesc_app.project_access.setup",
 	# The website's job application form and the applicant's details (job_application).
 	"gesc_app.gesc_app.job_application.setup",
+	# A request's project contract, warehouse, the office's notes and its assignees (material_request_project).
+	"gesc_app.gesc_app.material_request_project.setup",
+	# A quotation's proposals: their tables, titles and totals (quotation_options).
+	"gesc_app.gesc_app.quotation_options.setup",
 ]
 
 # Employee data each employee sees: their own, or their team's (access_guard).
@@ -256,10 +270,20 @@ doc_events = {
 	},
 	# Sample requests: a Material Issue for a customer (sample_request).
 	"Material Request": {
-		"before_validate": "gesc_app.gesc_app.sample_request.sync_purpose",
+		"before_validate": [
+			# A request from a task takes its project (material_request_project).
+			"gesc_app.gesc_app.material_request_project.set_task_project",
+			"gesc_app.gesc_app.sample_request.sync_purpose",
+			# The project's contract and warehouse, the office's notes (material_request_project).
+			"gesc_app.gesc_app.material_request_project.validate",
+		],
 		# The project's assignees read it (project_access).
 		"on_update": "gesc_app.gesc_app.project_access.on_project_document_change",
-		"on_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
+		"on_submit": [
+			"gesc_app.gesc_app.project_access.on_project_document_change",
+			# A request from a task goes to the role/department in Projects Settings.
+			"gesc_app.gesc_app.material_request_project.assign_to_department",
+		],
 		"on_cancel": "gesc_app.gesc_app.project_access.on_project_document_change",
 		"on_update_after_submit": "gesc_app.gesc_app.project_access.on_project_document_change",
 		"on_trash": "gesc_app.gesc_app.project_access.on_project_document_change",
@@ -284,6 +308,8 @@ doc_events = {
 			"gesc_app.gesc_app.quotation_approval.validate",
 			"gesc_app.gesc_app.quotation_addendum.validate",
 			"gesc_app.gesc_app.task_execution.validate_quotation_task",
+			# Proposals: their amounts and totals (quotation_options).
+			"gesc_app.gesc_app.quotation_options.validate",
 		],
 		"on_update": [
 			"gesc_app.gesc_app.task_execution.link_quotation_to_task",
@@ -401,6 +427,8 @@ extend_doctype_class = {
 override_whitelisted_methods = {
 	# A sample request's Stock Entry is a sample issue for its customer (sample_request).
 	"erpnext.stock.doctype.material_request.material_request.make_stock_entry": "gesc_app.gesc_app.sample_request.make_stock_entry",
+	# A quotation with proposals: the Sales Order of the proposal chosen (quotation_options).
+	"erpnext.selling.doctype.quotation.quotation.make_sales_order": "gesc_app.gesc_app.quotation_options.make_sales_order",
 	# The employee app's push subscriptions, error log and team card, guarded (access_guard).
 	"ms_hrms.web_push.subscribe": "gesc_app.gesc_app.access_guard.subscribe",
 	"ms_hrms.web_push.log_client_error": "gesc_app.gesc_app.access_guard.log_client_error",
@@ -413,7 +441,10 @@ override_whitelisted_methods = {
 override_doctype_dashboards = {
 	"Quotation": "gesc_app.gesc_app.quotation_dashboard.get_data",
 	"Task": "gesc_app.gesc_app.task_dashboard.get_data",
-	"Project": "gesc_app.gesc_app.project_warehouse.get_dashboard_data",
+	"Project": [
+		"gesc_app.gesc_app.project_warehouse.get_dashboard_data",
+		"gesc_app.gesc_app.material_request_project.get_project_dashboard_data",
+	],
 }
 
 # exempt linked doctypes from being automatically cancelled

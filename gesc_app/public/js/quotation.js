@@ -2,12 +2,18 @@ frappe.ui.form.on("Quotation", {
 	setup(frm) {
 		// An attachment belongs to one of this quotation's items.
 		frm.set_query("item_code", "custom_attachments", (doc) => ({
-			filters: { name: ["in", (doc.items || []).map((d) => d.item_code).filter(Boolean)] },
+			filters: {
+				name: [
+					"in",
+					GESC_ITEM_TABLES.flatMap((field) => (doc[field] || []).map((d) => d.item_code)).filter(Boolean),
+				],
+			},
 		}));
 	},
 
 	refresh(frm) {
-		gesc_format_item_attachments(frm);
+		// The items table and the proposals' tables (gesc_app quotation_options).
+		GESC_ITEM_TABLES.forEach((field) => gesc_format_item_attachments(frm, field));
 
 		if (frm.is_new()) {
 			return;
@@ -33,6 +39,8 @@ frappe.ui.form.on("Quotation", {
 // files can be picked from the device at once.
 const GESC_ITEM_FILES_TABLE = "custom_attachments";
 const GESC_ITEM_FILE_TYPE = "مخطط / رسم هندسي";
+// Tables whose rows have files: the items and each proposal's items.
+const GESC_ITEM_TABLES = ["items", ...[1, 2, 3, 4, 5].map((n) => `custom_option_${n}_items`)];
 
 frappe.ui.form.on("Quotation", {
 	items_add(frm, cdt, cdn) {
@@ -40,21 +48,33 @@ frappe.ui.form.on("Quotation", {
 	},
 });
 
-frappe.ui.form.on("Quotation Item", {
-	// The item's own form (the row opened): its files button under the main file.
-	form_render(frm, cdt, cdn) {
-		const row = locals[cdt][cdn];
-		const form = frm.fields_dict.items.grid.grid_rows_by_docname[cdn]?.grid_form;
-		const field = form?.fields_dict?.custom_attachment;
-		if (!field) return;
-		let button = field.$wrapper.find(".gesc-item-files-open");
-		if (!button.length) {
-			button = $(`<button type="button" class="btn btn-default btn-sm gesc-item-files-open"></button>`).appendTo(field.$wrapper);
-			button.on("click", () => gesc_open_item_files(frm, cdn));
-		}
-		button.html(`${frappe.utils.icon("es-line-attachment", "xs")} ${__("مرفقات الصنف")} (${gesc_item_files(frm, row).length})`);
-	},
+// The item's own form (the row opened): its files button under the main file.
+function gesc_item_form_render(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	const form = frm.fields_dict[row.parentfield]?.grid.grid_rows_by_docname[cdn]?.grid_form;
+	const field = form?.fields_dict?.custom_attachment;
+	if (!field) return;
+	let button = field.$wrapper.find(".gesc-item-files-open");
+	if (!button.length) {
+		button = $(`<button type="button" class="btn btn-default btn-sm gesc-item-files-open"></button>`).appendTo(field.$wrapper);
+		button.on("click", () => gesc_open_item_files(frm, cdn, cdt));
+	}
+	button.html(`${frappe.utils.icon("es-line-attachment", "xs")} ${__("مرفقات الصنف")} (${gesc_item_files(frm, row).length})`);
+}
+
+frappe.ui.form.on("Quotation Item", { form_render: gesc_item_form_render });
+frappe.ui.form.on("Quotation Option Item", {
+	form_render: gesc_item_form_render,
 });
+// Each row has its key, which ties its extra files to it.
+["custom_option_1_items", "custom_option_2_items", "custom_option_3_items", "custom_option_4_items", "custom_option_5_items"].forEach(
+	(field) =>
+		frappe.ui.form.on("Quotation Option Item", {
+			[`${field}_add`](frm, cdt, cdn) {
+				frappe.model.set_value(cdt, cdn, "custom_row_key", frappe.utils.get_random(12));
+			},
+		})
+);
 
 // The extra files of a row: linked to its row, or (older rows, before row keys) to its
 // item without a row.
@@ -76,14 +96,14 @@ function gesc_file_name(url) {
 
 // The column: a button with the count, which opens the item's files. It is read-only in
 // the grid, so a tap opens the files instead of a single-file picker.
-function gesc_format_item_attachments(frm) {
-	const grid = frm.get_field("items")?.grid;
+function gesc_format_item_attachments(frm, fieldname = "items") {
+	const grid = frm.get_field(fieldname)?.grid;
 	if (!grid) return;
 	const formatter = (value, df, options, row) => {
 		const count = row ? gesc_item_files(frm, row).length : value ? 1 : 0;
 		if (!row?.name) return "";
 		const label = count ? `${count}` : __("إضافة");
-		return `<button type="button" class="btn btn-xs btn-default gesc-item-files" data-row="${row.name}" title="${__("مرفقات الصنف")}">${frappe.utils.icon(
+		return `<button type="button" class="btn btn-xs btn-default gesc-item-files" data-row="${row.name}" data-doctype="${row.doctype}" title="${__("مرفقات الصنف")}">${frappe.utils.icon(
 			"es-line-attachment",
 			"xs"
 		)} ${label}</button>`;
@@ -106,15 +126,15 @@ function gesc_format_item_attachments(frm) {
 				if (!button) return;
 				event.preventDefault();
 				event.stopPropagation();
-				gesc_open_item_files(frm, button.dataset.row);
+				gesc_open_item_files(frm, button.dataset.row, button.dataset.doctype);
 			},
 			true
 		);
 	}
 }
 
-function gesc_open_item_files(frm, row_name) {
-	const row = locals["Quotation Item"]?.[row_name];
+function gesc_open_item_files(frm, row_name, doctype = "Quotation Item") {
+	const row = locals[doctype || "Quotation Item"]?.[row_name];
 	if (!row) return;
 	const editable = frm.doc.docstatus === 0 && frappe.model.can_write("Quotation");
 	if (editable && frm.is_new()) {
@@ -252,6 +272,6 @@ function gesc_save_item_files(frm, row, main, files) {
 	);
 	frappe.model.set_value(row.doctype, row.name, "custom_attachment", main || "");
 	frm.refresh_field(GESC_ITEM_FILES_TABLE);
-	frm.refresh_field("items");
+	frm.refresh_field(row.parentfield || "items");
 	frm.save();
 }

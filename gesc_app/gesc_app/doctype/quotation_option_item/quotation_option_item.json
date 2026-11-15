@@ -1,0 +1,167 @@
+{
+ "actions": [],
+ "creation": "2026-11-14 00:00:00.000000",
+ "description": "An item of a quotation's second, third... proposal (gesc_app quotation_options). The first proposal is the quotation's own items table.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "custom_item_description",
+  "item_name",
+  "custom_alternative_item_name",
+  "custom_group_in_print",
+  "custom_attachment",
+  "custom_print_with_item",
+  "column_break_main",
+  "uom",
+  "qty",
+  "rate",
+  "amount",
+  "section_description",
+  "description",
+  "custom_item_notes",
+  "item_group",
+  "custom_row_key"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "الصنف",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "custom_item_description",
+   "fieldtype": "Link",
+   "label": "وصف البند",
+   "options": "Item Description",
+   "description": "اختيار وصف محفوظ للصنف يملأ التوصيف."
+  },
+  {
+   "fetch_from": "item_code.item_name",
+   "fetch_if_empty": 1,
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "اسم الصنف"
+  },
+  {
+   "columns": 1,
+   "fieldname": "custom_alternative_item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "الاسم البديل للصنف",
+   "description": "يُطبع مكان اسم الصنف. اتركه فارغاً فيُطبع اسم الصنف."
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "custom_group_in_print",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "تجميع في الطباعة",
+   "description": "يُطبع تحت عنوان واحد مع البنود المعلَّمة التي لها نفس الاسم في نفس المقترح."
+  },
+  {
+   "columns": 1,
+   "fieldname": "custom_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "مرفق الصنف"
+  },
+  {
+   "fieldname": "custom_print_with_item",
+   "fieldtype": "Link",
+   "options": "Item",
+   "label": "يُطبع مع الصنف",
+   "description": "في طباعة المقترحات تحت كل بند: الصف يُطبع كأنه هذا الصنف، فيظهر تحت نفس البند ونفس الرقم."
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 1,
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "الوحدة",
+   "options": "UOM",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "الكمية",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "السعر",
+   "options": "currency"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "الإجمالي",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_description",
+   "fieldtype": "Section Break",
+   "label": "التوصيف"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "التوصيف"
+  },
+  {
+   "fieldname": "custom_item_notes",
+   "fieldtype": "Small Text",
+   "label": "ملاحظات",
+   "description": "تُطبع تحت توصيف البند."
+  },
+  {
+   "fetch_from": "item_code.item_group",
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "مجموعة الصنف",
+   "options": "Item Group",
+   "read_only": 1
+  },
+  {
+   "fieldname": "custom_row_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Item Row Key",
+   "read_only": 1,
+   "description": "Ties the item's extra files (Quotation Attachment rows, row_key) to this row."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-14 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gesc App",
+ "name": "Quotation Option Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

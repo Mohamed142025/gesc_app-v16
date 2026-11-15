@@ -1,5 +1,7 @@
 const ITEM_DESCRIPTION_CHILD_TABLES = [
 	"Quotation Item",
+	// A quotation's proposals (gesc_app quotation_options).
+	"Quotation Option Item",
 	"Sales Order Item",
 	"Sales Invoice Item",
 	"Delivery Note Item",
