@@ -115,6 +115,8 @@
 		setup(frm) {
 			// Inspection items end up in a Quotation, so they are items the company sells.
 			frm.set_query("item_code", "custom_execution_items", () => ({
+				// ERPNext's item search, which forgives Arabic spelling (gesc_app item_search).
+				query: "erpnext.controllers.queries.item_query",
 				filters: frm.doc.custom_is_pre_quotation_inspection
 					? { is_sales_item: 1, disabled: 0 }
 					: { is_purchase_item: 1, disabled: 0 },

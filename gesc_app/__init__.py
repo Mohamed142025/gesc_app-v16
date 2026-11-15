@@ -72,3 +72,15 @@ def patch_trial_balance_for_party():
 
 
 patch_trial_balance_for_party()
+
+
+def patch_item_search():
+	"""Item search that forgives Arabic spelling (gesc_app.gesc_app.item_search)."""
+	try:
+		from gesc_app.gesc_app import item_search
+	except Exception:
+		return
+	item_search.patch()
+
+
+patch_item_search()
