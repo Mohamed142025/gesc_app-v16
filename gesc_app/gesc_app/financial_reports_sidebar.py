@@ -13,10 +13,12 @@ SIDEBARS = {
 	"Financial Reports": (
 		("كشف حساب", "كشف حساب", "Supplier Ledger Summary"),
 		("الموقف المالي للعقود", "الموقف المالي للعقود", "Accounts Receivable Summary"),
+		("قيم المخزون حسب المخزن", "قيم المخزون حسب المخزن", "Trial Balance"),
 	),
 	"المراجع المالي": (
 		("كشف حساب", "كشف حساب", "General Ledger"),
 		("الموقف المالي للعقود", "الموقف المالي للعقود", "Accounts Receivable"),
+		("قيم المخزون حسب المخزن", "قيم المخزون حسب المخزن", "Stock Ledger"),
 	),
 }
 
