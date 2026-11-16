@@ -8,6 +8,7 @@ Quotation Attachment rows; an item's extra files (beyond its main custom_attachm
 rows linked to its item and to its row (custom_row_key).
 """
 
+import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 MODULE = "Gesc App"
@@ -22,7 +23,7 @@ def setup():
 					"label": "اسم العميل في الطباعة",
 					"fieldtype": "Data",
 					"insert_after": "custom_submitted_to",
-					"description": "يظهر في خانة العميل في الطباعة. اتركه فارغاً فلا يُطبع العميل.",
+					"description": "فارغ = لا يُطبع العميل.",
 					"module": MODULE,
 				},
 			],
@@ -68,3 +69,9 @@ def setup():
 		},
 		update=True,
 	)
+	# The quotation's head in three even columns: the party | the dates and the CRM deal |
+	# the order type, "مقدمة الى" and the printed customer name (fixtures place "مقدمة الى").
+	# The CRM deal field comes from the Frappe CRM integration; it is only moved here.
+	if frappe.db.exists("Custom Field", "Quotation-crm_deal"):
+		frappe.db.set_value("Custom Field", "Quotation-crm_deal", "insert_after", "valid_till")
+		frappe.clear_cache(doctype="Quotation")

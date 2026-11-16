@@ -432,6 +432,8 @@ def to_excel(html, doc):
 				continue
 			sheet.row += 1
 
+	_excel_option_totals(soup, sheet)
+
 	terms = soup.find(class_="gq-terms")
 	if terms is not None:
 		text = _text(terms)
@@ -464,6 +466,27 @@ def to_excel(html, doc):
 		ws.oddFooter.center.text = f"{doc.name}  |  &P / &N"
 		ws.oddFooter.center.size = 8
 	return sheet.save()
+
+
+def _excel_option_totals(soup, sheet):
+	"""The proposals' totals (quotation_options): a line each, the proposal over two columns,
+	then its totals (before the discount, the discount, after it) in its colour."""
+	table = soup.find("table", class_="gq-cmp")
+	if table is None:
+		return
+	sheet.row += 1
+	for tr in table.find_all("tr"):
+		cells = tr.find_all(["th", "td"])
+		header = tr.find("th") is not None
+		fill = GREY if header else next((OPTION_FILLS[c] for c in (tr.get("class") or []) if c in OPTION_FILLS), None)
+		sheet.cell(1, cells[0].get_text(" ", strip=True), span=2, bold=True, fill=fill)
+		for i, cell in enumerate(cells[1:]):
+			value = cell.get_text(" ", strip=True) if header else _number(cell.get_text())
+			after = "after" in (cell.get("class") or [])
+			sheet.cell(3 + i, value, bold=True, fill=fill, size=12 if after else 10.5, number=None if header else "#,##0.00")
+		sheet.height(2 if header else 1, 16)
+		sheet.row += 1
+	sheet.row += 1
 
 
 def _spans(count):

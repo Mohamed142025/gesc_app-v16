@@ -1,6 +1,7 @@
-// Quotation proposals (gesc_app.gesc_app.quotation_options): the items table is proposal 1,
-// every other proposal has its own table and total; the Sales Order is made for the proposal
-// the customer chose.
+// Quotation proposals (gesc_app.gesc_app.quotation_options): every proposal has its own table
+// and total. Without fixed items the items table is hidden (the server fills it from proposal
+// 1); with them it holds the fixed items. The Sales Order is made for the proposal the
+// customer chose.
 const GESC_MAX_OPTIONS = 5;
 
 frappe.ui.form.on("Quotation", {
@@ -38,20 +39,40 @@ frappe.ui.form.on("Quotation", {
 
 	refresh(frm) {
 		gesc_items_label(frm);
+		gesc_move_items_to_option_one(frm);
 		if (frm.doc.docstatus === 0 && frm.doc.custom_has_options && !frm.doc.custom_options_common_items) {
 			frm.add_custom_button(__("نسخ أصناف المقترح 1 إلى مقترح"), () => gesc_copy_option_one(frm), __("المقترحات"));
 		}
 	},
 
 	custom_has_options(frm) {
-		gesc_items_label(frm);
 		if (frm.doc.custom_has_options && !frm.doc.custom_options_count) {
 			frm.set_value("custom_options_count", 2);
 		}
+		gesc_move_items_to_option_one(frm);
+		gesc_items_label(frm);
 		gesc_option_totals(frm);
 	},
 
 	custom_options_common_items(frm) {
+		if (!frm.doc.custom_has_options) return;
+		if (frm.doc.custom_options_common_items) {
+			// The items table was proposal 1's copy: it now holds the fixed items.
+			frm.clear_table("items");
+			frm.refresh_field("items");
+			frappe.show_alert({ message: __("اكتب الأصناف الثابتة لكل المقترحات في جدول الأصناف الأساسية."), indicator: "blue" });
+		} else if ((frm.doc.items || []).length) {
+			frappe.confirm(
+				__("الأصناف الأساسية هتتشال، وكل مقترح يفضل بأصنافه بس. تكمل؟"),
+				() => {
+					frm.clear_table("items");
+					frm.refresh_field("items");
+					gesc_items_label(frm);
+					gesc_option_totals(frm);
+				},
+				() => frm.set_value("custom_options_common_items", 1)
+			);
+		}
 		gesc_items_label(frm);
 		gesc_option_totals(frm);
 	},
@@ -121,7 +142,7 @@ function gesc_option_totals(frm) {
 		let value = 0;
 		if (n <= cint(frm.doc.custom_options_count)) {
 			if (common) value = items_total + sum(frm.doc[`custom_option_${n}_items`]);
-			else value = n === 1 ? items_total : sum(frm.doc[`custom_option_${n}_items`]);
+			else value = sum(frm.doc[`custom_option_${n}_items`]);
 		}
 		values[`custom_option_${n}_total`] = value;
 	}
@@ -184,7 +205,7 @@ function gesc_copy_option_one(frm) {
 		primary_action({ option, replace }) {
 			const field = `custom_option_${option}_items`;
 			if (replace) frm.clear_table(field);
-			(frm.doc.items || []).forEach((item) => {
+			(frm.doc.custom_option_1_items || []).forEach((item) => {
 				const row = frm.add_child(field);
 				[
 					"item_code",
@@ -212,10 +233,39 @@ function gesc_copy_option_one(frm) {
 	d.show();
 }
 
-// With fixed items the items table holds what every proposal has.
+// With fixed items the items table holds what every proposal has; with each proposal whole
+// it is hidden behind proposal 1's own table.
 function gesc_items_label(frm) {
-	const common = frm.doc.custom_has_options && frm.doc.custom_options_common_items;
+	const options = !!frm.doc.custom_has_options;
+	const common = options && !!frm.doc.custom_options_common_items;
 	frm.set_df_property("items", "label", common ? __("الأصناف الأساسية (ثابتة لكل المقترحات)") : __("Items"));
+	frm.set_df_property("items", "hidden", options && !common ? 1 : 0);
+	frm.set_df_property(
+		"custom_option_1_items",
+		"label",
+		common ? __("أصناف المقترح 1 (الزيادة على الأساسية)") : __("أصناف المقترح 1")
+	);
+}
+
+// Each proposal whole and proposal 1 still in the items table (a quotation from before, or
+// proposals just ticked): its items move to proposal 1's own table.
+const GESC_MOVED_FIELDS = [
+	"item_code", "item_name", "description", "custom_item_description", "uom", "qty", "rate", "amount",
+	"custom_alternative_item_name", "custom_group_in_print", "custom_item_notes", "custom_attachment",
+	"custom_row_key", "custom_print_with_item", "item_group",
+];
+function gesc_move_items_to_option_one(frm) {
+	const d = frm.doc;
+	if (d.docstatus !== 0 || !d.custom_has_options || d.custom_options_common_items) return;
+	if ((d.custom_option_1_items || []).length || !(d.items || []).filter((r) => r.item_code).length) return;
+	d.items.filter((r) => r.item_code).forEach((item) => {
+		const row = frm.add_child("custom_option_1_items");
+		GESC_MOVED_FIELDS.forEach((key) => (row[key] = item[key]));
+		if (!row.custom_row_key) row.custom_row_key = frappe.utils.get_random(12);
+	});
+	frm.refresh_field("custom_option_1_items");
+	gesc_option_totals(frm);
+	frm.dirty();
 }
 
 // Frappe calls the form controller's handlers (ERPNext's item_code, qty, rate, uom...) for a

@@ -61,13 +61,16 @@ def own_table(doc, n):
 
 
 def setup():
+	# The settings in three columns above the items: proposals and how many | fixed items and
+	# their title | printed under each item. Each proposal: its title and total side by side,
+	# its table under them.
 	fields = [
 		{
 			"fieldname": HAS_OPTIONS,
 			"label": "له مقترحات",
 			"fieldtype": "Check",
 			"insert_after": "items_section",
-			"description": "عرض السعر فيه أكثر من مقترح (Opt.1، Opt.2...). جدول الأصناف هو المقترح 1، ولكل مقترح بعده جدول.",
+			"description": "أكتر من مقترح في نفس العرض (Opt.1، Opt.2...).",
 			"module": MODULE,
 		},
 		{
@@ -82,12 +85,18 @@ def setup():
 			"module": MODULE,
 		},
 		{
+			"fieldname": "custom_options_column_1",
+			"fieldtype": "Column Break",
+			"insert_after": COUNT,
+			"module": MODULE,
+		},
+		{
 			"fieldname": COMMON,
 			"label": "أصناف أساسية ثابتة لكل المقترحات",
 			"fieldtype": "Check",
-			"insert_after": COUNT,
+			"insert_after": "custom_options_column_1",
 			"depends_on": f"eval:doc.{HAS_OPTIONS}",
-			"description": "جدول الأصناف التالي يبقى للأصناف الثابتة في كل المقترحات، وكل مقترح يضيف أصنافه الزيادة بس في جدوله. إجمالي المقترح = الأساسية + أصنافه.",
+			"description": "تتكتب مرة واحدة وتدخل في إجمالي كل مقترح.",
 			"module": MODULE,
 		},
 		{
@@ -96,24 +105,38 @@ def setup():
 			"fieldtype": "Data",
 			"insert_after": COMMON,
 			"depends_on": f"eval:doc.{HAS_OPTIONS} && doc.{COMMON}",
-			"description": "يُطبع فوق الأصناف الأساسية. لو فاضي ما يُطبعش عنوان.",
+			"description": "اختياري، يُطبع فوقها.",
+			"module": MODULE,
+		},
+		{
+			"fieldname": "custom_options_column_2",
+			"fieldtype": "Column Break",
+			"insert_after": COMMON_TITLE,
 			"module": MODULE,
 		},
 		{
 			"fieldname": BY_ITEM,
 			"label": "طباعة المقترحات تحت كل بند",
 			"fieldtype": "Check",
-			"insert_after": COMMON_TITLE,
+			"insert_after": "custom_options_column_2",
 			"depends_on": f"eval:doc.{HAS_OPTIONS}",
-			"description": "في الطباعة: كل بند وتحته المقترح 1 والمقترح 2 والمقترح 3 له، ثم البند التالي. البند هو نفس الصنف في المقترحات (الأول مع الأول لو الصنف متكرر).",
+			"description": "كل بند وتحته مقترحاته.",
+			"module": MODULE,
+		},
+		{
+			"fieldname": "custom_options_items_break",
+			"fieldtype": "Section Break",
+			"insert_after": BY_ITEM,
+			"hide_border": 1,
 			"module": MODULE,
 		},
 		{
 			"fieldname": "custom_options_section",
-			"label": "المقترحات",
+			"label": "",
 			"fieldtype": "Section Break",
 			"insert_after": "items",
-			"depends_on": f"eval:doc.{HAS_OPTIONS}",
+			"hide_border": 1,
+			"depends_on": f"eval:doc.{HAS_OPTIONS} && doc.{COMMON}",
 			"module": MODULE,
 		},
 		{
@@ -144,20 +167,13 @@ def setup():
 				"fieldtype": "Data",
 				"insert_after": f"custom_option_{n}_section",
 				"depends_on": _shown(n),
-				"description": (
-					"يُطبع فوق بنود المقترح 1، مثل: برجولة 900*400 سم. بنود المقترح 1 هي جدول الأصناف، إلا مع الأصناف الأساسية الثابتة فله جدوله التالي."
-					if n == 1
-					else ""
-				),
+				"description": "يُطبع فوق بنود المقترح، مثل: برجولة 900*400 سم." if n == 1 else "",
 				"module": MODULE,
 			},
 			{
-				"fieldname": table(n),
-				"label": f"أصناف المقترح {n}" + (" (الزيادة على الأساسية)" if n == 1 else ""),
-				"fieldtype": "Table",
-				"options": "Quotation Option Item",
+				"fieldname": f"custom_option_{n}_column",
+				"fieldtype": "Column Break",
 				"insert_after": title(n),
-				"depends_on": f"eval:doc.{HAS_OPTIONS} && doc.{COMMON}" if n == 1 else _shown(n),
 				"module": MODULE,
 			},
 			{
@@ -165,13 +181,30 @@ def setup():
 				"label": f"إجمالي المقترح {n}",
 				"fieldtype": "Currency",
 				"options": "currency",
-				"insert_after": table(n),
+				"insert_after": f"custom_option_{n}_column",
 				"read_only": 1,
 				"depends_on": _shown(n),
 				"module": MODULE,
 			},
+			{
+				"fieldname": f"custom_option_{n}_table_section",
+				"fieldtype": "Section Break",
+				"insert_after": total(n),
+				"hide_border": 1,
+				"depends_on": _shown(n),
+				"module": MODULE,
+			},
+			{
+				"fieldname": table(n),
+				"label": f"أصناف المقترح {n}",
+				"fieldtype": "Table",
+				"options": "Quotation Option Item",
+				"insert_after": f"custom_option_{n}_table_section",
+				"depends_on": _shown(n),
+				"module": MODULE,
+			},
 		]
-		after = total(n)
+		after = table(n)
 	create_custom_fields(
 		{
 			"Quotation": fields,
@@ -190,6 +223,74 @@ def setup():
 		update=True,
 	)
 	frappe.clear_cache(doctype="Quotation")
+
+
+# What the items table takes from proposal 1's rows when it is hidden behind them.
+MIRRORED_FIELDS = (
+	"item_code",
+	"item_name",
+	"description",
+	"custom_item_description",
+	"uom",
+	"qty",
+	"rate",
+	"custom_alternative_item_name",
+	"custom_group_in_print",
+	"custom_item_notes",
+	"custom_attachment",
+	"custom_row_key",
+	PRINT_WITH,
+)
+
+
+def before_validate(doc, method=None):
+	"""Each proposal whole (no fixed items): proposal 1 has its own table like the others and
+	the items table is hidden, filled from it here so ERPNext's totals and Sales Order are
+	proposal 1's. A quotation from before keeps its proposal 1 by moving its items into it."""
+	if doc.docstatus != 0:
+		return
+	if doc.get(HAS_OPTIONS) and not doc.get(COMMON):
+		if not doc.get(table(1)) and doc.items:
+			for item in doc.items:
+				doc.append(table(1), {field: item.get(field) for field in MIRRORED_FIELDS})
+		if not doc.get(table(1)):
+			frappe.throw(_("أضف أصناف المقترح 1."), title=_("المقترحات"))
+		_mirror_option_one(doc)
+		return
+	# Proposals just turned off: the quotation keeps proposal 1's items.
+	before = doc.get_doc_before_save()
+	if before and before.get(HAS_OPTIONS) and not before.get(COMMON) and doc.get(table(1)):
+		_mirror_option_one(doc)
+
+
+def _mirror_option_one(doc):
+	_set_descriptions(doc)
+	items = []
+	for row in doc.get(table(1)):
+		if not row.get("custom_row_key"):
+			row.custom_row_key = frappe.generate_hash(length=12)
+		stock_uom = frappe.get_cached_value("Item", row.item_code, "stock_uom")
+		conversion = 1.0
+		if row.uom and row.uom != stock_uom:
+			conversion = flt(
+				frappe.db.get_value("UOM Conversion Detail", {"parent": row.item_code, "uom": row.uom}, "conversion_factor")
+			) or 1.0
+		values = {field: row.get(field) for field in MIRRORED_FIELDS}
+		values.update(
+			{
+				"stock_uom": stock_uom,
+				"conversion_factor": conversion,
+				"price_list_rate": row.rate,
+				"discount_percentage": 0,
+				"discount_amount": 0,
+				"margin_type": "",
+				"margin_rate_or_amount": 0,
+			}
+		)
+		items.append(values)
+	doc.set("items", [])
+	for values in items:
+		doc.append("items", values)
 
 
 def validate(doc, method=None):
@@ -333,26 +434,32 @@ def make_sales_order(source_name, target_doc=None, args=None):
 
 
 def rows_by_item(doc):
-	"""For the print format, the proposals' items under each item: [{"title", "rows": [{"n",
-	"option_title", "row"}]}], in the order the items first appear (proposal 1 first).
+	"""For the print format, the proposals' items under each item: [{"title", "grouped",
+	"items": [{"number", "rows": [{"n", "option_title", "row"}]}]}], in the order the items
+	first appear (proposal 1 first).
 
 	An item is the same item code in each proposal (a row's "يُطبع مع الصنف" stands in for its
-	own code), its first time in one proposal with its
-	first time in the others and so on. An item ticked "تجميع في الطباعة" is one item however
-	many times it is in a proposal: all its rows of proposal 1, then of proposal 2... Items
-	ticked with the same printed name share one title. The fixed items (if any) are not here:
-	they print on their own."""
-	keys, rows = [], {}
-	# Ticked in any proposal is enough.
+	own code), its first time in one proposal with its first time in the others and so on. A row
+	"يُطبع مع الصنف" joins that item (its first one) instead of counting as one more.
+	Rows ticked "تجميع في الطباعة" with the same code and the same printed name (the
+	alternative name, or the item's name) are one item however many there are: its rows of
+	proposal 1, then of proposal 2... Ticked items with the same printed name share one title.
+	The fixed items (if any) are not here: they print on their own."""
+
 	def code(row):
 		return row.get(PRINT_WITH) or row.item_code
 
-	grouped_items = {code(row) for _n, _t, items, _total in options(doc) for row in items if row.get("custom_group_in_print")}
+	def title(row):
+		return (row.get("custom_alternative_item_name") or row.item_name or "").strip()
+
+	keys, rows = [], {}
 	for n, option_title, items, _total in options(doc):
 		seen = {}
 		for row in items:
-			if code(row) in grouped_items:
-				key = (code(row), "grouped")
+			if row.get(PRINT_WITH):
+				key = next((k for k in keys if k[0] == code(row)), (code(row), 0))
+			elif row.get("custom_group_in_print"):
+				key = (code(row), "grouped", title(row))
 			else:
 				occurrence = seen.get(code(row), 0)
 				seen[code(row)] = occurrence + 1
@@ -364,13 +471,12 @@ def rows_by_item(doc):
 
 	blocks = []
 	for number, key in enumerate(keys, 1):
-		first = rows[key][0]["row"]
-		title = first.get("custom_alternative_item_name") or first.item_name
 		grouped = key[1] == "grouped"
+		block_title = key[2] if grouped else title(rows[key][0]["row"])
 		item = {"number": number, "rows": rows[key]}
-		block = grouped and next((b for b in blocks if b["grouped"] and b["title"] == title), None)
+		block = grouped and next((b for b in blocks if b["grouped"] and b["title"] == block_title), None)
 		if block:
 			block["items"].append(item)
 		else:
-			blocks.append({"title": title, "grouped": grouped, "items": [item]})
+			blocks.append({"title": block_title, "grouped": grouped, "items": [item]})
 	return blocks

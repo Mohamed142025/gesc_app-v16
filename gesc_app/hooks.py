@@ -303,6 +303,8 @@ doc_events = {
 	},
 	"Quotation": {
 		"autoname": "gesc_app.gesc_app.quotation_addendum.autoname",
+		# Proposals without fixed items: the items table filled from proposal 1 (quotation_options).
+		"before_validate": "gesc_app.gesc_app.quotation_options.before_validate",
 		"validate": [
 			"gesc_app.gesc_app.project_controls.set_required_advance",
 			"gesc_app.gesc_app.quotation_approval.validate",
